@@ -6,12 +6,12 @@ pub fn bundle_create(bundle: &Path, ref_name: &str) -> Result<()> {
     let result = Command::new("git")
         .arg("bundle")
         .arg("create")
-        .arg(bundle.to_str().chain_err(|| "bundle path invalid")?)
+        .arg(bundle.to_str().ok_or_else(|| ErrorKind::GitError("bundle path invalid".to_string()))?)
         .arg(ref_name)
         .output()
-        .chain_err(|| "failed to run git")?;
+        .map_err(|e| ErrorKind::GitError(format!("failed to run git: {}", e)))?;
     if !result.status.success() {
-        bail!("git bundle failed");
+        bail!(ErrorKind::GitError("git bundle failed".to_string()));
     }
     Ok(())
 }
@@ -20,12 +20,12 @@ pub fn bundle_unbundle(bundle: &Path, ref_name: &str) -> Result<()> {
     let result = Command::new("git")
         .arg("bundle")
         .arg("unbundle")
-        .arg(bundle.to_str().chain_err(|| "bundle path invalid")?)
+        .arg(bundle.to_str().ok_or_else(|| ErrorKind::GitError("bundle path invalid".to_string()))?)
         .arg(ref_name)
         .output()
-        .chain_err(|| "failed to run git")?;
+        .map_err(|e| ErrorKind::GitError(format!("failed to run git: {}", e)))?;
     if !result.status.success() {
-        bail!("git unbundle failed");
+        bail!(ErrorKind::GitError("git bundle unbundle failed".to_string()));
     }
     Ok(())
 }
@@ -34,10 +34,10 @@ pub fn is_ancestor(base_ref: &str, remote_ref: &str) -> Result<bool> {
     let result = Command::new("git")
         .arg("merge-base")
         .arg("--is-ancestor")
-        .arg(remote_ref)
         .arg(base_ref)
+        .arg(remote_ref)
         .output()
-        .chain_err(|| "failed to run git")?;
+        .map_err(|e| ErrorKind::GitError(format!("failed to run git: {}", e)))?;
     Ok(result.status.success())
 }
 
@@ -46,12 +46,13 @@ pub fn config(setting: &str) -> Result<String> {
         .arg("config")
         .arg(setting)
         .output()
-        .chain_err(|| "failed to run git")?;
+        .map_err(|e| ErrorKind::GitError(format!("failed to run git: {}", e)))?;
     if !result.status.success() {
-        bail!("git config failed");
+        bail!(ErrorKind::GitError(format!("git config {} failed", setting)));
     }
-    let s = String::from_utf8(result.stdout).chain_err(|| "not utf8")?;
-    Ok(s.trim().to_string())
+    String::from_utf8(result.stdout)
+        .map_err(|e| ErrorKind::GitError(format!("invalid utf8: {}", e)).into())
+        .map(|s| s.trim().to_string())
 }
 
 pub fn rev_parse(rev: &str) -> Result<String> {
@@ -59,10 +60,11 @@ pub fn rev_parse(rev: &str) -> Result<String> {
         .arg("rev-parse")
         .arg(rev)
         .output()
-        .chain_err(|| "failed to run git")?;
+        .map_err(|e| ErrorKind::GitError(format!("failed to run git: {}", e)))?;
     if !result.status.success() {
-        bail!("git rev-parse failed");
+        bail!(ErrorKind::GitError(format!("git rev-parse {} failed", rev)));
     }
-    let s = String::from_utf8(result.stdout).chain_err(|| "not utf8")?;
-    Ok(s.trim().to_string())
+    String::from_utf8(result.stdout)
+        .map_err(|e| ErrorKind::GitError(format!("invalid utf8: {}", e)).into())
+        .map(|s| s.trim().to_string())
 }

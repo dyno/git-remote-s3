@@ -1,25 +1,27 @@
 [package]
 name = "git-remote-s3"
-version = "0.1.4"
-authors = ["Bryan Gahagan <git@bgahagan.dev>"]
+version = "0.1.5"
+authors = ["Daniel Fu <daniel.fu@mongodb.com>"]
 edition = "2018"
-license = "MIT"
-description = "Push and pull git repos to/from an s3 bucket, encrypted using gpg."
-repository = "https://github.com/bgahagan/git-remote-s3"
+description = "A git remote helper for S3"
+license = "Apache-2.0"
+repository = "https://github.com/dyno/git-remote-s3"
 readme = "README.md"
-keywords = [ "git", "aws", "S3", "gpg", "cli" ]
+keywords = ["git", "s3"]
 categories = [ "command-line-utilities", "development-tools" ]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-error-chain = "0.12.1"
-itertools = "0.8.2"
-tempfile = "3.1.0"
-rusoto_core = { version="0.42.0", default_features=false, features=["rustls"] }
-rusoto_credential = "0.42.0"
-rusoto_s3 = { version="0.42.0", default_features=false, features=["rustls"] }
+error-chain = "0.12.4"
+itertools = "0.10.5"
+tempfile = "3.3.0"
+aws-config = "0.55"
+aws-sdk-s3 = "0.28"
+tokio = { version = "1.0", features = ["full"] }
+log = "0.4"
+env_logger = "0.10"
 
 [dev-dependencies]
-assert_cmd = "0.11"
-
+assert_cmd = "1.0"
+tokio = { version = "1.0", features = ["full", "test-util"] }
