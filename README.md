@@ -1,77 +1,118 @@
-Git Remote S3 Helper
-====================
+# Git Remote S3 Helper
+
+[Fork of bgahagan/git-remote-s3](https://github.com/bgahagan/git-remote-s3)
+the main update from the original repo is making it work on EMR 7 by chaning the library from [rusoto](https://github.com/rusoto/rusoto) to [aws-sdk-rust](https://github.com/awslabs/aws-sdk-rust)
 
 Push and pull git repos to/from an s3 bucket.
-Uses gpg to encrypt the repo contents (but not branch names!) before sending
-to s3.
+Uses gpg to encrypt the repo contents (but not branch names!) before sending to s3.
 
-This likely most useful for small teams who don't want to host their own
+This is most useful for small teams who don't want to host their own
 private repository, but still want to manage their own encryption.
 For example, my use case is periodically backing up a repo from a desktop
 and pull to a laptop to develop remotely.
 
-
-Example Usage
--------------
+## Example Usage
 
 Add a remote using the `s3` transport:
-```
+```bash
 git remote add s3remote s3://my_bucket/prefix
 ```
 
 And then you can push/pull to the remote as usual:
-
-```
-git pull s3remote master
+```bash
+git pull s3remote main
 
 git push s3remote
 ```
 
 Or even clone from s3:
-```
+```bash
 git clone s3://my_bucket/prefix
 ```
 
 
-Installation
-------------
+## Installation
 
-* Put `git-remote-s3` in your PATH
-  * Download the latest release [here](https://github.com/bgahagan/git-remote-s3/releases/latest), gunzip and put it in your PATH
-  * Or, install using cargo: `cargo install git-remote-s3`
-* Make sure s3 credentials are setup
-  * See [here](https://docs.rs/rusoto_credential/0.40.0/rusoto_credential/struct.ChainProvider.html) for details on how the rusoto library loads as credentials (similar to the aws command line).
-* Setup gpg
-  * gpg encryption will be attempted using `git config user.email` as a recipient. You'll want to ensure you have public and private keys setup for this user.
-  * Alternatively, you can set a list of space-delimited recipients using the `remote.<name>.gpgRecipients`config.
+1. Install the binary:
+   * Download the latest release [here](https://github.com/bgahagan/git-remote-s3/releases/latest), gunzip and put it in your PATH
+   * Or, install using cargo: `cargo install git-remote-s3`
 
-Design Notes
-------------
-Due to the eventual consistency behaviour of s3, the semantics of pushing are
-slightly different when pushing to a 'proper' git repository.
-An attempt is made to prevent non-force pushes that do not include the current
-head as an ancestor (as proper git repos do), but eventual consistency means
-this is not guaranteed.
-Its possible for multiple heads to exist for the same branch, in which case
-the clients consider the newest head to be the truth.
-All heads for a branch can be seen using `git ls-remote` - the latest (newest)
-head the have the branch's name; older head will be shown using the naming
-scheme: `<branch_name>__<sha>`.
-An old head is retained until a new head is pushed that includes the old head
-as an ancestor, at which point the old head is deleted.
-This prevents any data loss, but puts the burden on the user to manually merge
-in old branches.
+2. Configure AWS credentials:
+   * Set up AWS credentials using any of the standard methods (environment variables, credentials file, etc.)
+   * Required environment variables:
+     ```bash
+     AWS_ACCESS_KEY_ID=your_access_key
+     AWS_SECRET_ACCESS_KEY=your_secret_key
+     ```
+   * Optional environment variables:
+     ```bash
+     AWS_REGION=your_region         # defaults to us-east-1
+     S3_ENDPOINT=your_endpoint_url  # for custom endpoints like MinIO
+     ```
 
-Each branch is stored (after being bundled with `git bundle` and encrypted with
-`gpg`) on s3 using the key `s3://bucket/prefix/<ref_name>/<sha>.bundle`.
-On average, a `git push` will incur two list, a put and a delete s3 operation.
-A `git pull` will incur a list and a get s3 operation.
+3. Setup GPG (Optional but recommended):
+   * GPG encryption is enabled by default (GIT_S3_ENCRYPT=1)
+   * The system will use `git config user.email` as the GPG recipient
+   * Ensure you have public and private keys setup for this user
+   * Alternatively, set specific recipients using `git config --add remote.<name>.gpgRecipients "user1@example.com user2@example.com"`
+   * To disable encryption: `export GIT_S3_ENCRYPT=0`
 
 
-Future improvements
--------------------
+## Development
 
-* A better way to notify the user there are multiple heads on s3.
-  * Show warning when attempting to push/fetch and there are multiple heads for a branch?
-* Allow disabling gpg with `remote.<name>.gpg`
-* use `gpg.program`
+### Prerequisites
+* Rust 1.82 or later
+* Docker (for MinIO in tests)
+* GPG
+
+### Building
+```bash
+# Local build
+cargo build
+
+# Cross-platform build using Docker
+make cross-build-with-docker
+```
+
+### Testing
+```bash
+# Start MinIO (required for tests)
+make start-minio
+
+# In another terminal, run tests
+make test
+```
+
+The test suite will:
+1. Set up a test GPG key if not present
+2. Start a local MinIO instance
+3. Run integration tests that verify:
+   * Basic push/pull operations
+   * Force push behavior
+   * Multiple head handling
+   * GPG encryption/decryption
+
+
+## Design Notes
+
+The semantics of pushing are slightly different from a 'proper' git repository:
+
+* Non-force pushes require the current head as an ancestor
+* Multiple heads can exist for the same branch
+  * The newest head is considered the truth
+  * Older heads use the naming scheme: `<branch_name>__<sha>`
+  * View all heads using `git ls-remote`
+* Old heads are retained until a new head includes them as ancestors
+* Each branch is stored on S3 as: `s3://bucket/prefix/<ref_name>/<sha>.bundle`
+  * Files are bundled with `git bundle` and encrypted with `gpg`
+  * Average operations:
+    * `git push`: 2 list, 1 put, 1 delete
+    * `git pull`: 1 list, 1 get
+
+
+## Future Improvements
+
+* Better notification of multiple heads on S3
+  * Show warning when attempting push/fetch with multiple heads
+* Use `gpg.program` configuration
+* Performance optimizations for large repositories
