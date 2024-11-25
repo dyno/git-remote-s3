@@ -11,7 +11,32 @@ start-minio:
 		minio/minio server /home/shared \
 		# END
 
-test:
+setup-gpg:
+	@if ! gpg --fingerprint --with-colons 'test@example.com' | grep "example.com" > /dev/null; then \
+		echo "Generating GPG key for test@example.com"; \
+		gpg --verbose --batch --gen-key <(cat <<-EOF \
+			%echo Generating a basic OpenPGP key \
+			Key-Type: RSA \
+			Key-Length: 2048 \
+			Subkey-Type: RSA \
+			Subkey-Length: 2048 \
+			Name-Real: Test User \
+			Name-Comment: Test User \
+			Name-Email: test@example.com \
+			Expire-Date: 0 \
+			%no-ask-passphrase \
+			%no-protection \
+			%commit \
+			%echo done \
+			EOF \
+		); \
+		gpg --list-secret-keys; \
+		gpg -v --batch -r test@example.com -o /tmp/enc-test.out -e Makefile; \
+	else \
+		echo "GPG key for test@example.com already exists"; \
+	fi
+
+test: setup-gpg
 	RUST_BACKTRACE=full cargo test
 
 build-with-docker:
