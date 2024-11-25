@@ -2,8 +2,16 @@ use super::errors::*;
 use std::path::Path;
 use std::process::Command;
 use std::io::{Write};
+use std::fs;
+use std::env;
 
 pub fn encrypt(recipients: &[String], i: &Path, o: &Path) -> Result<()> {
+    if env::var("GIT_S3_NO_ENCRYPT").is_ok() {
+        // Just copy the file when encryption is disabled
+        fs::copy(i, o).chain_err(|| "failed to copy file")?;
+        return Ok(());
+    }
+    
     let mut cmd = Command::new("gpg");
     cmd.arg("-q").arg("--batch");
     for recipient in recipients {
@@ -27,6 +35,12 @@ pub fn encrypt(recipients: &[String], i: &Path, o: &Path) -> Result<()> {
 }
 
 pub fn decrypt(i: &Path, o: &Path) -> Result<()> {
+    if env::var("GIT_S3_NO_ENCRYPT").is_ok() {
+        // Just copy the file when encryption is disabled
+        fs::copy(i, o).chain_err(|| "failed to copy file")?;
+        return Ok(());
+    }
+    
     let mut cmd = Command::new("gpg");
     cmd
         .arg("-q")
