@@ -6,7 +6,7 @@ use std::fs;
 use std::env;
 
 pub fn encrypt(recipients: &[String], i: &Path, o: &Path) -> Result<()> {
-    if env::var("GIT_S3_NO_ENCRYPT").is_ok() {
+    if env::var("GIT_S3_ENCRYPT").unwrap_or_default() != "1" {
         // Just copy the file when encryption is disabled
         fs::copy(i, o).chain_err(|| "failed to copy file")?;
         return Ok(());
@@ -35,7 +35,7 @@ pub fn encrypt(recipients: &[String], i: &Path, o: &Path) -> Result<()> {
 }
 
 pub fn decrypt(i: &Path, o: &Path) -> Result<()> {
-    if env::var("GIT_S3_NO_ENCRYPT").is_ok() {
+    if env::var("GIT_S3_ENCRYPT").unwrap_or_default() != "1" {
         // Just copy the file when encryption is disabled
         fs::copy(i, o).chain_err(|| "failed to copy file")?;
         return Ok(());
