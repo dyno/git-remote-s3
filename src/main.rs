@@ -18,7 +18,6 @@ use tempfile::Builder;
 
 use std::collections::HashMap;
 use std::env;
-use std::fs;
 use std::io;
 use std::path::Path;
 
@@ -129,38 +128,11 @@ fn get_s3_client(settings: &Settings) -> Result<Client> {
 }
 
 fn fetch(s3: &Client, o: &s3::Key, enc_file: &Path) -> Result<()> {
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    rt.block_on(async {
-        let result = s3.get_object()
-            .bucket(&o.bucket)
-            .key(&o.key)
-            .send()
-            .await
-            .map_err(|e| format!("get object failed: {}", e))?;
-            
-        let body = result.body;
-        let bytes = body.collect().await.map_err(|e| format!("failed to collect body: {}", e))?;
-        
-        std::fs::write(enc_file, bytes.into_bytes())
-            .map_err(|e| format!("failed to write file: {}", e))?;
-            
-        Ok(())
-    })
+    s3::get(s3, o, enc_file)
 }
 
 fn push(s3: &Client, enc_file: &Path, o: &s3::Key) -> Result<()> {
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    rt.block_on(async {
-        let contents = fs::read(enc_file).map_err(|e| format!("failed to read file: {}", e))?;
-        s3.put_object()
-            .bucket(&o.bucket)
-            .key(&o.key)
-            .body(aws_sdk_s3::primitives::ByteStream::from(contents))
-            .send()
-            .await
-            .map_err(|e| format!("put object failed: {}", e))?;
-        Ok(())
-    })
+    s3::put(s3, enc_file, o)
 }
 
 fn list_refs(s3: &Client, settings: &Settings) -> Result<HashMap<String, RemoteRefs>> {
