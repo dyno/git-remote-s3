@@ -13,15 +13,15 @@ use tempfile::Builder;
 
 use assert_cmd::cargo::cargo_bin;
 use assert_cmd::prelude::*;
+
 use std::env;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
 
 fn git(pwd: &Path, args: &str) -> Command {
-    let my_path = cargo_bin("git-remote-s3");
-    let my_path = my_path.parent().unwrap();
-    let my_path = my_path.to_str().unwrap();
+    let bin_path = cargo_bin("git-remote-s3");
+    let my_path = bin_path.parent().unwrap().to_str().unwrap();
     let new_path = format!("{}:{}", my_path, env::var("PATH").unwrap());
 
     let mut command = Command::new("git");
@@ -36,7 +36,6 @@ fn git(pwd: &Path, args: &str) -> Command {
 
 fn cmd_args(command: &mut Command, args: &str) {
     let words: Vec<_> = args.split_whitespace().collect();
-
     for word in words {
         command.arg(word);
     }

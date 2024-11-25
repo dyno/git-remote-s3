@@ -1,14 +1,14 @@
 [package]
 name = "git-remote-s3"
 version = "0.1.4"
-authors = ["Bryan Gahagan <git@bgahagan.dev>"]
-edition = "2018"
-license = "MIT"
-description = "Push and pull git repos to/from an s3 bucket, encrypted using gpg."
+authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
+description = "Git remote helper for S3"
 repository = "https://github.com/bgahagan/git-remote-s3"
-readme = "README.md"
-keywords = [ "git", "aws", "S3", "gpg", "cli" ]
+license = "MIT"
+edition = "2018"
+keywords = ["git", "s3"]
 categories = [ "command-line-utilities", "development-tools" ]
+readme = "README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -22,4 +22,4 @@ rusoto_s3 = { version="0.42.0", default_features=false, features=["rustls"] }
 
 [dev-dependencies]
 assert_cmd = "0.11"
-
+tokio = { version = "1.32", features = ["full", "test-util"] }
