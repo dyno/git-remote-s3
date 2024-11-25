@@ -153,7 +153,7 @@ fn integration() {
     git(&repo1, "remote add origin s3://git-remote-s3/test")
         .assert()
         .success();
-    git(&repo1, "push --set-upstream origin master").assert().success();
+    git(&repo1, "push --set-upstream origin main").assert().success();
     let sha = git_rev(&repo1);
 
     println!("test: cloning into repo2");
@@ -165,7 +165,7 @@ fn integration() {
     git(&repo2, "log --oneline --decorate=short")
         .assert()
         .stdout(format!(
-            "{} (HEAD -> master, origin/master, origin/HEAD) r1_c1\n",
+            "{} (HEAD -> main, origin/main) r1_c1\n",
             sha
         ));
 
@@ -175,10 +175,10 @@ fn integration() {
         .success();
     git(&repo2, "push origin").assert().success();
     let sha = git_rev(&repo2);
-    git(&repo1, "pull origin master").assert().success();
+    git(&repo1, "pull origin main").assert().success();
     git(&repo1, "log --oneline --decorate=short -n 1")
         .assert()
-        .stdout(format!("{} (HEAD -> master, origin/master) r2_c1\n", sha));
+        .stdout(format!("{} (HEAD -> main, origin/main) r2_c1\n", sha));
 
     println!("test: force push form repo2");
     git(&repo1, "commit --allow-empty -am r1_c2")
@@ -196,16 +196,16 @@ fn integration() {
     git(&repo2, "push -f origin").assert().success();
     // assert that there are 2 refs on s3 (the original was kept)
     git(&repo1, "ls-remote origin").assert()
-        .stdout(format!("{}\trefs/heads/master\n{}\trefs/heads/master__{}\n{}\tHEAD\n", sha2l, sha1l, sha1, sha2l));
-    git(&repo1, "pull -r origin master").assert().success();
+        .stdout(format!("{}\trefs/heads/main\n{}\trefs/heads/main__{}\n", sha2l, sha1l, sha1));
+    git(&repo1, "pull -r origin main").assert().success();
     git(
         &repo1,
         format!("log --oneline --decorate=short -n 1 {}", sha2).as_str(),
     )
     .assert()
-    .stdout(format!("{} (HEAD -> master, origin/master) r2_c2\n", sha2));
-    git(&repo1, "push origin master").assert().success();
+    .stdout(format!("{} (HEAD -> main, origin/main) r2_c2\n", sha2));
+    git(&repo1, "push origin main").assert().success();
     // assert that refs are unchanged on s3
     git(&repo1, "ls-remote origin").assert()
-        .stdout(format!("{}\trefs/heads/master\n{}\trefs/heads/master__{}\n{}\tHEAD\n", sha2l, sha1l, sha1, sha2l));
+        .stdout(format!("{}\trefs/heads/main\n{}\trefs/heads/main__{}\n", sha2l, sha1l, sha1));
 }
