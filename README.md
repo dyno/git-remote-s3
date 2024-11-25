@@ -1,15 +1,20 @@
 # Git Remote S3 Helper
 
-[Fork of bgahagan/git-remote-s3](https://github.com/bgahagan/git-remote-s3)
-the main update from the original repo is making it work on EMR 7 by chaning the library from [rusoto](https://github.com/rusoto/rusoto) to [aws-sdk-rust](https://github.com/awslabs/aws-sdk-rust)
-
-Push and pull git repos to/from an s3 bucket.
+A Git remote helper that enables pushing and pulling git repositories to/from an S3 bucket.
 Uses gpg to encrypt the repo contents (but not branch names!) before sending to s3.
 
 This is most useful for small teams who don't want to host their own
 private repository, but still want to manage their own encryption.
 For example, my use case is periodically backing up a repo from a desktop
 and pull to a laptop to develop remotely.
+
+## Features
+
+- Push/pull git repositories to/from S3 buckets
+- GPG encryption for repository contents
+- AWS SDK for Rust integration
+- Support for custom endpoints (e.g., MinIO)
+- Configurable AWS region and credentials
 
 ## Example Usage
 
@@ -30,11 +35,10 @@ Or even clone from s3:
 git clone s3://my_bucket/prefix
 ```
 
-
 ## Installation
 
 1. Install the binary:
-   * Download the latest release [here](https://github.com/bgahagan/git-remote-s3/releases/latest), gunzip and put it in your PATH
+   * Download the latest release [here](https://github.com/dyno/git-remote-s3/releases/latest), gunzip and put it in your PATH
    * Or, install using cargo: `cargo install git-remote-s3`
 
 2. Configure AWS credentials:
@@ -56,7 +60,6 @@ git clone s3://my_bucket/prefix
    * Ensure you have public and private keys setup for this user
    * Alternatively, set specific recipients using `git config --add remote.<name>.gpgRecipients "user1@example.com user2@example.com"`
    * To disable encryption: `export GIT_S3_ENCRYPT=0`
-
 
 ## Development
 
@@ -92,7 +95,6 @@ The test suite will:
    * Multiple head handling
    * GPG encryption/decryption
 
-
 ## Design Notes
 
 The semantics of pushing are slightly different from a 'proper' git repository:
@@ -109,10 +111,15 @@ The semantics of pushing are slightly different from a 'proper' git repository:
     * `git push`: 2 list, 1 put, 1 delete
     * `git pull`: 1 list, 1 get
 
-
 ## Future Improvements
 
 * Better notification of multiple heads on S3
   * Show warning when attempting push/fetch with multiple heads
 * Use `gpg.program` configuration
 * Performance optimizations for large repositories
+
+## Acknowledgements
+
+- Fork of [git-remote-s3](https://github.com/bgahagan/git-remote-s3/)
+- Updated with [Windsurf](https://codeium.com/windsurf)
+
