@@ -6,8 +6,6 @@ error_chain! {
 }
 
 pub fn is_broken_pipe(error: &Error) -> bool {
-    if let Some(io_error) = error.downcast_ref::<std::io::Error>() {
-        return io_error.kind() == std::io::ErrorKind::BrokenPipe;
-    }
-    false
+    let err_string = error.to_string();
+    err_string.contains("Broken pipe") || err_string.contains("broken pipe")
 }
