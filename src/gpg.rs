@@ -5,8 +5,12 @@ use std::io::{Write};
 use std::fs;
 use std::env;
 
+fn is_encryption_disabled() -> bool {
+    env::var("GIT_S3_ENCRYPT").unwrap_or_else(|_| "1".to_string()) != "1"
+}
+
 pub fn encrypt(recipients: &[String], i: &Path, o: &Path) -> Result<()> {
-    if env::var("GIT_S3_ENCRYPT").unwrap_or_default() != "1" {
+    if is_encryption_disabled() {
         // Just copy the file when encryption is disabled
         fs::copy(i, o).chain_err(|| "failed to copy file")?;
         return Ok(());
@@ -35,7 +39,7 @@ pub fn encrypt(recipients: &[String], i: &Path, o: &Path) -> Result<()> {
 }
 
 pub fn decrypt(i: &Path, o: &Path) -> Result<()> {
-    if env::var("GIT_S3_ENCRYPT").unwrap_or_default() != "1" {
+    if is_encryption_disabled() {
         // Just copy the file when encryption is disabled
         fs::copy(i, o).chain_err(|| "failed to copy file")?;
         return Ok(());
