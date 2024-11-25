@@ -7,10 +7,7 @@ extern crate aws_config;
 extern crate aws_types;
 extern crate tokio;
 
-use aws_sdk_s3::{
-    Client,
-    primitives::{ByteStream, DateTime},
-};
+use aws_sdk_s3::Client;
 use aws_config::meta::region::RegionProviderChain;
 use aws_config::retry::RetryConfig;
 use aws_config::timeout::TimeoutConfig;
