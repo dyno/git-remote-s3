@@ -230,7 +230,7 @@ fn cmd_loop(s3: &Client, settings: &Settings) -> Result<()> {
         let arg1 = iter.next();
         let arg2 = iter.next();
 
-        match (cmd, arg1, arg2) {
+        let result = match (cmd, arg1, arg2) {
             (Some("push"), Some(ref_arg), None) => cmd_push(s3, settings, ref_arg),
             (Some("fetch"), Some(sha), Some(name)) => cmd_fetch(s3, settings, sha, name),
             (Some("capabilities"), None, None) => cmd_capabilities(),
@@ -238,7 +238,16 @@ fn cmd_loop(s3: &Client, settings: &Settings) -> Result<()> {
             (Some("list"), Some("for-push"), None) => cmd_list(s3, settings),
             (None, None, None) => return Ok(()),
             _ => cmd_unknown(),
-        }?
+        };
+
+        // Handle broken pipe errors gracefully
+        if let Err(e) = result {
+            let error_string = e.to_string();
+            if error_string.contains("Broken pipe") {
+                return Ok(());  // Exit gracefully on broken pipe
+            }
+            return Err(e);
+        }
     }
 }
 
