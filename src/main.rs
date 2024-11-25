@@ -58,7 +58,13 @@ fn run() -> Result<()> {
         region: env::var("AWS_REGION").ok(),
     };
 
-    let s3 = get_s3_client(&s3_settings)?;
+    let s3 = match get_s3_client(&s3_settings) {
+        Ok(client) => client,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            return Err(e);
+        }
+    };
 
     let settings = Settings {
         remote_alias: alias,
@@ -70,7 +76,17 @@ fn run() -> Result<()> {
         region: s3_settings.region,
     };
 
-    cmd_loop(&s3, &settings)
+    match cmd_loop(&s3, &settings) {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            if errors::is_broken_pipe(&e) {
+                // Exit gracefully on broken pipe
+                std::process::exit(0);
+            }
+            eprintln!("Error: {}", e);
+            Err(e)
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -240,10 +256,8 @@ fn cmd_loop(s3: &Client, settings: &Settings) -> Result<()> {
             _ => cmd_unknown(),
         };
 
-        // Handle broken pipe errors gracefully
         if let Err(e) = result {
-            let error_string = e.to_string();
-            if error_string.contains("Broken pipe") {
+            if errors::is_broken_pipe(&e) {
                 return Ok(());  // Exit gracefully on broken pipe
             }
             return Err(e);
