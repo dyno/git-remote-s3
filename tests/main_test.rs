@@ -14,6 +14,7 @@ use std::process::Command;
 use tempfile::Builder;
 use tracing_subscriber::fmt;
 use std::fs::OpenOptions;
+use time::macros::format_description;
 
 fn setup() -> PathBuf {
     // Enable debug logging only for our crate
@@ -31,6 +32,11 @@ fn setup() -> PathBuf {
         .with_env_filter("git_remote_s3=debug")
         .with_writer(file)
         .with_ansi(false)
+        .with_file(true)
+        .with_line_number(true)
+        .with_thread_ids(true)
+        .with_target(false)  // Don't need module path since we have file/line
+        .with_timer(fmt::time::UtcTime::new(format_description!("[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:3]")))
         .init();
     
     let test_dir = Builder::new()

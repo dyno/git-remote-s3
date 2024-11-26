@@ -14,6 +14,7 @@ use std::time::Duration;
 use tracing::{info, warn, error, debug};
 use tracing_subscriber::fmt;
 use std::fs::OpenOptions;
+use time::macros::format_description;
 
 mod git;
 mod gpg;
@@ -36,6 +37,11 @@ async fn main() -> Result<()> {
             .with_env_filter(env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string()))
             .with_writer(file)
             .with_ansi(false)
+            .with_file(true)
+            .with_line_number(true)
+            .with_thread_ids(true)
+            .with_target(false)  // Don't need module path since we have file/line
+            .with_timer(fmt::time::UtcTime::new(format_description!("[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:3]")))
             .init();
 
         // If RUST_LOG_STDERR=1 is set, also log to stderr
