@@ -32,7 +32,20 @@ async fn main() -> Result<()> {
             .open("/tmp/git-remote-s3.log")
             .map_err(|e| anyhow!("Failed to open log file: {}", e))?;
 
-        // Initialize logging to file only
+        // Initialize logging to file only, with panic hook to avoid stdout after pipe close
+        std::panic::set_hook(Box::new(|panic_info| {
+            if let Some(s) = panic_info.payload().downcast_ref::<String>() {
+                eprintln!("panic occurred: {}", s);
+            } else if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
+                eprintln!("panic occurred: {}", s);
+            } else {
+                eprintln!("panic occurred");
+            }
+            if let Some(location) = panic_info.location() {
+                eprintln!("panic occurred in file '{}' at line {}", location.file(), location.line());
+            }
+        }));
+
         fmt()
             .with_env_filter(env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string()))
             .with_writer(file)
