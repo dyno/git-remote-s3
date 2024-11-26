@@ -1,4 +1,4 @@
-use std::{env, fs, path::Path, path::PathBuf, error::Error, sync::Once};
+use std::{env, fs, path::Path, path::PathBuf, error::Error, sync::Once, io};
 use assert_cmd::cargo::cargo_bin;
 use assert_cmd::prelude::*;
 use std::process::Command;
@@ -19,32 +19,39 @@ const TEST_SECRET_KEY: &str = "test1234";
 static INIT_LOGGER: Once = Once::new();
 
 fn setup() -> PathBuf {
-    // Enable debug logging only for our crate if not already set
-    if env::var("RUST_LOG").is_err() {
-        env::set_var("RUST_LOG", "git_remote_s3=debug");
-    }
-
     // Initialize logging only once
     INIT_LOGGER.call_once(|| {
+        // Set filter to show both git_remote_s3 and test module logs at debug level
+        let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+            .or_else(|_| tracing_subscriber::EnvFilter::try_new(env::var("RUST_LOG")
+                .unwrap_or_else(|_| "main_test=debug".to_string())))
+            .unwrap();
+
+        // Initialize stdout logging
         fmt()
-            .with_env_filter(env::var("RUST_LOG").unwrap())
-            .with_ansi(false)  // Disable colors for better readability
-            .with_file(true)   // Include file and line for context
+            .with_env_filter(filter)
+            .with_writer(io::stdout)
+            .with_ansi(false)
+            .with_file(true)
             .with_line_number(true)
             .with_thread_ids(true)
-            .with_target(false)  // Don't need module path since we have file/line
+            .with_target(false)
             .with_timer(fmt::time::UtcTime::new(format_description!("[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:3]")))
             .init();
         
-        tracing::info!("Initialized logging");
+        tracing::debug!("Logging initialized for main_test");
+        tracing::debug!("Debug logging enabled for main_test");
     });
-    
+
+    // Add test logging
+    tracing::debug!("Setting up test environment");
+
     let test_dir = Builder::new()
         .prefix("git_s3_test")
         .tempdir()
         .unwrap()
         .into_path();
-    tracing::info!(test_dir = %test_dir.display(), "Created test directory");
+    tracing::debug!("Created test directory: {:?}", test_dir);
     test_dir
 }
 
@@ -152,13 +159,15 @@ fn git_rev_long(pwd: &Path) -> String {
 
 #[tokio::test]
 async fn integration() -> Result<(), Box<dyn Error>> {
+    tracing::debug!("Starting integration test");
     let client = create_test_client().await?;
+    tracing::debug!("Created S3 test client");
     let bucket = "git-remote-s3";
 
     // Setup s3 bucket
     let _ = delete_bucket_recurse(&client, bucket).await;
     create_bucket(&client, bucket).await?;
-    tracing::info!(bucket, "Created S3 bucket");
+    tracing::debug!("Created test bucket: {}", bucket);
 
     let test_dir = setup();
     tracing::info!("Starting integration test");
@@ -171,12 +180,14 @@ async fn integration() -> Result<(), Box<dyn Error>> {
 
     tracing::info!(repo = %repo1.display(), "Initializing first repository");
     git(&repo1, "init").assert().success();
+    tracing::debug!("Initialized git repository");
     git(&repo1, "config user.email test@example.com").assert().success();
     git(&repo1, "config user.name Test").assert().success();
     git(&repo1, "branch -M main").assert().success();
     git(&repo1, "commit --allow-empty -am r1_c1")
         .assert()
         .success();
+    tracing::debug!("Created initial commit");
     tracing::info!("test: pushing from repo1");
     git(&repo1, "remote add origin s3://git-remote-s3/test")
         .assert()

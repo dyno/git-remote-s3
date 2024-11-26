@@ -3,7 +3,7 @@ use anyhow::{Result, anyhow};
 use aws_sdk_s3::Client;
 use aws_sdk_s3::error::SdkError;
 use aws_sdk_s3::operation::get_object::GetObjectError;
-use tracing::{debug, error, instrument};
+use tracing::{debug, error};
 
 #[derive(Debug)]
 pub struct Key {
@@ -11,7 +11,6 @@ pub struct Key {
     pub key: String,
 }
 
-#[instrument(skip(s3))]
 pub async fn get(s3: &Client, f: &Path, o: &Key) -> Result<()> {
     debug!(?o, ?f, "Getting object from S3");
     
@@ -55,7 +54,6 @@ pub async fn get(s3: &Client, f: &Path, o: &Key) -> Result<()> {
     Ok(())
 }
 
-#[instrument(skip(s3))]
 pub async fn put(s3: &Client, f: &Path, o: &Key) -> Result<()> {
     debug!(?o, ?f, "Putting object to S3");
     
@@ -88,7 +86,6 @@ pub async fn put(s3: &Client, f: &Path, o: &Key) -> Result<()> {
     Ok(())
 }
 
-#[instrument(skip(s3))]
 pub async fn del(s3: &Client, o: &Key) -> Result<()> {
     debug!(?o, "Deleting object from S3");
     

@@ -31,22 +31,28 @@ async fn main() -> Result<()> {
         .map_err(|e| anyhow!("Failed to open log file: {}", e))?;
 
     fmt()
-        .with_env_filter(env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string()))
+        .with_env_filter(env::var("RUST_LOG").unwrap_or_else(|_| "git_remote_s3=info".to_string()))
         .with_writer(file)
         .with_ansi(false)
         .with_file(true)
         .with_line_number(true)
         .with_thread_ids(true)
-        .with_target(false)
+        .with_target(false)  
         .with_timer(fmt::time::UtcTime::new(format_description!("[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:3]")))
         .init();
 
+    debug!("Logging initialized for git-remote-s3");
+
     // Set up panic handler
-    std::panic::set_hook(Box::new(|_| {
-        // Silently ignore broken pipe errors
-        if std::env::var_os("RUST_LOG").is_some() {
-            eprintln!("Error: git-remote-s3 operation failed");
+    std::panic::set_hook(Box::new(|panic_info| {
+        if let Some(location) = panic_info.location() {
+            if location.file().contains("stdio.rs") && panic_info.to_string().contains("Broken pipe") {
+                // Silently ignore broken pipe errors
+                return;
+            }
         }
+        // Only show error for non-broken-pipe panics
+        eprintln!("Error: git-remote-s3 operation failed");
     }));
 
     let mut args = env::args();

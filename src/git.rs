@@ -1,10 +1,9 @@
 use std::process::Command;
 use anyhow::{Result, anyhow, bail};
 use std::path::Path;
-use tracing::{debug, error, instrument};
+use tracing::{debug, error};
 use crate::common::log_command;
 
-#[instrument]
 pub fn bundle_create(bundle: &Path, ref_name: &str) -> Result<()> {
     debug!(?bundle, ?ref_name, "Creating git bundle");
     
@@ -35,7 +34,6 @@ pub fn bundle_create(bundle: &Path, ref_name: &str) -> Result<()> {
     Ok(())
 }
 
-#[instrument]
 pub fn bundle_unbundle(bundle: &Path, ref_name: &str) -> Result<()> {
     debug!(?bundle, ?ref_name, "Unbundling git bundle");
     
@@ -69,7 +67,6 @@ pub fn bundle_unbundle(bundle: &Path, ref_name: &str) -> Result<()> {
     Ok(())
 }
 
-#[instrument]
 pub fn config(setting: &str) -> Result<String> {
     debug!(?setting, "Reading git config");
     
@@ -100,7 +97,6 @@ pub fn config(setting: &str) -> Result<String> {
     Ok(output)
 }
 
-#[instrument]
 pub fn is_ancestor(base_ref: &str, remote_ref: &str) -> Result<bool> {
     debug!(?base_ref, ?remote_ref, "Checking git ancestry");
     
@@ -122,7 +118,6 @@ pub fn is_ancestor(base_ref: &str, remote_ref: &str) -> Result<bool> {
     Ok(result.status.success())
 }
 
-#[instrument]
 pub fn rev_parse(rev: &str) -> Result<String> {
     debug!(?rev, "Resolving git revision");
     
