@@ -196,11 +196,13 @@ async fn integration() -> Result<(), Box<dyn Error>> {
     let _sha = git_rev(&repo1);
 
     tracing::info!("test: cloning into repo2");
-    git(&repo2, "clone s3://git-remote-s3/test .")
-        .assert()
-        .success();
+    fs::create_dir_all(&repo2).unwrap();
+    git(&repo2, "init").assert().success();
     git(&repo2, "config user.email test@example.com").assert().success();
     git(&repo2, "config user.name Test").assert().success();
+    git(&repo2, "remote add origin s3://git-remote-s3/test").assert().success();
+    git(&repo2, "fetch origin").assert().success();
+    git(&repo2, "checkout main").assert().success();
     git(&repo2, "log --oneline --decorate=short")
         .assert()
         .success();
