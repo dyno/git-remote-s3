@@ -122,4 +122,4 @@ The semantics of pushing are slightly different from a 'proper' git repository:
 
 - Fork of [git-remote-s3](https://github.com/bgahagan/git-remote-s3/)
 - Updated with [Windsurf](https://codeium.com/windsurf)
-
+- https://github.com/awslabs/git-remote-s3, "This library enables to use Amazon S3 as a git remote and LFS server."
