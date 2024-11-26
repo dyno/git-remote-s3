@@ -13,30 +13,34 @@ start-minio:
 		minio/minio server /home/shared \
 		# END
 
+define GEN_KEY_CONF
+%echo Generating a basic OpenPGP key
+Key-Type: RSA
+Key-Length: 2048
+Subkey-Type: RSA
+Subkey-Length: 2048
+Name-Real: Test User
+Name-Comment: Test User
+Name-Email: test@example.com
+Expire-Date: 0
+%no-ask-passphrase
+%no-protection
+%commit
+%echo done
+endef
+export GEN_KEY_CONF
+
+GNUPGHOME := $(PWD)/gnupg
+export GNUPGHOME
+
 setup-gpg:
-	@if ! gpg --fingerprint --with-colons 'test@example.com' | grep "example.com" > /dev/null; then \
-		echo "Generating GPG key for test@example.com"; \
-		gpg --verbose --batch --gen-key <(cat <<-EOF \
-			%echo Generating a basic OpenPGP key \
-			Key-Type: RSA \
-			Key-Length: 2048 \
-			Subkey-Type: RSA \
-			Subkey-Length: 2048 \
-			Name-Real: Test User \
-			Name-Comment: Test User \
-			Name-Email: test@example.com \
-			Expire-Date: 0 \
-			%no-ask-passphrase \
-			%no-protection \
-			%commit \
-			%echo done \
-			EOF \
-		); \
-		gpg --list-secret-keys; \
-		gpg -v --batch -r test@example.com -o /tmp/enc-test.out -e Makefile; \
-	else \
-		echo "GPG key for test@example.com already exists"; \
-	fi
+	rm -rf gnupg
+	mkdir -p gnupg
+	chmod 700 gnupg
+	gpg --batch --gen-key <<< "$${GEN_KEY_CONF}"
+	gpg --list-secret-keys
+	echo "test" > gnupg/test.txt
+	gpg -v --batch -r test@example.com -o gnupg/test.enc -e gnupg/test.txt
 
 test:
 	RUST_BACKTRACE=full cargo test
