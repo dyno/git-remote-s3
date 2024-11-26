@@ -1,5 +1,3 @@
-#![recursion_limit = "1024"]
-
 use anyhow::{Result, anyhow, bail};
 use aws_sdk_s3::Client;
 use aws_config::meta::region::RegionProviderChain;
