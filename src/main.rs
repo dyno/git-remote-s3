@@ -19,6 +19,7 @@ use std::fs::OpenOptions;
 mod git;
 mod gpg;
 mod s3;
+mod common;
 
 fn is_broken_pipe(error: &anyhow::Error) -> bool {
     let err_string = error.to_string();
