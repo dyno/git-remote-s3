@@ -11,7 +11,6 @@ use std::env;
 use std::io;
 use std::path::Path;
 use std::time::Duration;
-use tempfile::Builder;
 use tracing::{info, warn, error, debug};
 use tracing_subscriber::fmt;
 use std::fs::OpenOptions;
@@ -280,15 +279,12 @@ fn cmd_capabilities() -> Result<()> {
 async fn fetch_from_s3(s3: &Client, settings: &Settings, r: &GitRef) -> Result<()> {
     info!(?r, "Fetching from S3");
     
-    let tmp_dir = Builder::new()
-        .prefix("s3_fetch")
-        .tempdir()
-        .map_err(|e| anyhow!("mktemp dir failed: {}", e))?;
+    let tmp_dir = std::env::temp_dir();
         
     debug!(?tmp_dir, "Created temporary directory");
     
-    let bundle_file = tmp_dir.path().join("bundle");
-    let enc_file = tmp_dir.path().join("bundle_enc");
+    let bundle_file = tmp_dir.join("bundle");
+    let enc_file = tmp_dir.join("bundle_enc");
 
     let path = r.bundle_path(settings.root.key.to_owned());
     let o = s3::Key {
@@ -309,12 +305,9 @@ async fn fetch_from_s3(s3: &Client, settings: &Settings, r: &GitRef) -> Result<(
 }
 
 async fn push_to_s3(s3: &Client, settings: &Settings, r: &GitRef) -> Result<()> {
-    let tmp_dir = Builder::new()
-        .prefix("s3_push")
-        .tempdir()
-        .map_err(|e| anyhow!("mktemp dir failed: {}", e))?;
-    let bundle_file = tmp_dir.path().join("bundle");
-    let enc_file = tmp_dir.path().join("bundle_enc");
+    let tmp_dir = std::env::temp_dir();
+    let bundle_file = tmp_dir.join("bundle");
+    let enc_file = tmp_dir.join("bundle_enc");
 
     git::bundle_create(&bundle_file, &r.name)?;
 
