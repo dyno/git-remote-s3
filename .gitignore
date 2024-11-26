@@ -1,1 +1,5 @@
 target/
+*.tar.gz
+*.tar
+zold/
+tmp/

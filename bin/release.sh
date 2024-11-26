@@ -41,15 +41,15 @@ stage_github() {
 }
 
 build() {
-  for target in x86_64-unknown-linux-gnu i686-unknown-linux-gnu; do
-    cargo build --release --target "$target"
+  for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
+    cross build --release --target "$target"
     version=$(egrep "^version\s+=" Cargo.toml | egrep -o "[0-9]+\.[0-9]+\.[0-9]+")
     gzip -c target/$target/release/git-remote-s3 > target/$target/release/git-remote-s3-$target.gz
     echo "target/$target/release/git-remote-s3-$target.gz git-remote-s3-$target.gz" | \
       stage_github "git-remote-s3" "$version"
   done
-  echo "Finished building and staging binaries.  Manual next stpes:"
-  echo " - Promote github relase"
+  echo "Finished building and staging binaries.  Manual next steps:"
+  echo " - Promote github release"
   echo " - publish crate: cargo publish"
 }
 
