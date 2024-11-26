@@ -1,11 +1,6 @@
 #![recursion_limit = "1024"]
 #[macro_use]
 extern crate error_chain;
-extern crate itertools;
-extern crate aws_sdk_s3;
-extern crate aws_config;
-extern crate aws_types;
-extern crate tokio;
 
 use aws_sdk_s3::Client;
 use aws_config::meta::region::RegionProviderChain;

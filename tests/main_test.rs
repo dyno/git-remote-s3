@@ -1,5 +1,3 @@
-extern crate assert_cmd;
-
 use aws_sdk_s3::{
     Client,
     config::Credentials,
