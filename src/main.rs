@@ -13,6 +13,8 @@ use std::path::Path;
 use std::time::Duration;
 use tempfile::Builder;
 use tracing::{info, warn, error, debug};
+use tracing_subscriber::fmt;
+use std::fs::OpenOptions;
 
 mod errors;
 mod git;
@@ -23,9 +25,27 @@ mod s3;
 async fn main() -> Result<()> {
     // Only initialize logging if not in git protocol mode
     if !env::args().any(|arg| arg == "list" || arg == "push") {
-        tracing_subscriber::fmt()
+        // Create or append to log file
+        let file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("/tmp/git-remote-s3.log")
+            .map_err(|e| anyhow!("Failed to open log file: {}", e))?;
+
+        // Initialize logging to file only
+        fmt()
             .with_env_filter(env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string()))
+            .with_writer(file)
             .init();
+
+        // If RUST_LOG_STDERR=1 is set, also log to stderr
+        if env::var("RUST_LOG_STDERR").is_ok() {
+            fmt()
+                .with_env_filter(env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string()))
+                .init();
+        }
+
+        info!("Starting new session");
     }
 
     let mut args = env::args();
