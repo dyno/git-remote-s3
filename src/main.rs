@@ -1,39 +1,32 @@
 #![recursion_limit = "1024"]
-#[macro_use]
-extern crate error_chain;
 
+use anyhow::{Result, anyhow, bail};
 use aws_sdk_s3::Client;
 use aws_config::meta::region::RegionProviderChain;
 use aws_config::retry::RetryConfig;
 use aws_config::timeout::TimeoutConfig;
 use aws_types::region::Region;
-
-use itertools::Itertools;
-use tempfile::Builder;
-
 use std::collections::HashMap;
 use std::env;
 use std::io;
 use std::path::Path;
+use std::time::Duration;
+use tempfile::Builder;
 
 mod errors;
 mod git;
 mod gpg;
 mod s3;
 
-use errors::*;
-
-quick_main!(run);
-
 #[tokio::main]
-async fn run() -> Result<()> {
+async fn main() -> Result<()> {
     let mut args = env::args();
     args.next();
-    let alias = args.next().chain_err(|| "must provide alias")?;
-    let url = args.next().chain_err(|| "must provide url")?;
+    let alias = args.next().ok_or_else(|| anyhow!("must provide alias"))?;
+    let url = args.next().ok_or_else(|| anyhow!("must provide url"))?;
 
     let url_path = url.trim_start_matches("s3://");
-    let slash_idx = url_path.find('/').chain_err(|| "url must contain /")?;
+    let slash_idx = url_path.find('/').ok_or_else(|| anyhow!("url must contain /"))?;
     let bucket = &url_path[..slash_idx];
     let path = &url_path[(slash_idx + 1)..];
 
@@ -81,7 +74,7 @@ async fn get_s3_client(settings: &Settings) -> Result<Client> {
         .region(region_provider)
         .retry_config(RetryConfig::standard().with_max_attempts(3))
         .timeout_config(TimeoutConfig::builder()
-            .operation_timeout(std::time::Duration::from_secs(30))
+            .operation_timeout(Duration::from_secs(30))
             .build());
 
     if let Some(endpoint) = &settings.endpoint {
@@ -124,7 +117,7 @@ impl RemoteRefs {
 }
 
 async fn fetch(s3: &Client, o: &s3::Key, enc_file: &Path) -> Result<()> {
-    s3::get(s3, o, enc_file).await
+    s3::get(s3, &enc_file, o).await
 }
 
 async fn push(s3: &Client, enc_file: &Path, o: &s3::Key) -> Result<()> {
@@ -137,7 +130,7 @@ async fn list_refs(s3: &Client, settings: &Settings) -> Result<HashMap<String, R
         .prefix(&settings.root.key)
         .send()
         .await
-        .map_err(|e| format!("list objects failed: {}", e))?;
+        .map_err(|e| anyhow!("list objects failed: {}", e))?;
 
     let objects = result.contents().unwrap_or_default();
     let mut refs_map = HashMap::new();
@@ -212,7 +205,7 @@ async fn cmd_loop(s3: &Client, settings: &Settings) -> Result<()> {
         let mut input = String::new();
         io::stdin()
             .read_line(&mut input)
-            .chain_err(|| "read error")?;
+            .map_err(|e| anyhow!("read error: {}", e))?;
 
         if input.is_empty() {
             return Ok(());
@@ -259,7 +252,7 @@ async fn fetch_from_s3(s3: &Client, settings: &Settings, r: &GitRef) -> Result<(
     let tmp_dir = Builder::new()
         .prefix("s3_fetch")
         .tempdir()
-        .chain_err(|| "mktemp dir failed")?;
+        .map_err(|e| anyhow!("mktemp dir failed: {}", e))?;
     let bundle_file = tmp_dir.path().join("bundle");
     let enc_file = tmp_dir.path().join("buncle_enc");
 
@@ -281,7 +274,7 @@ async fn push_to_s3(s3: &Client, settings: &Settings, r: &GitRef) -> Result<()> 
     let tmp_dir = Builder::new()
         .prefix("s3_push")
         .tempdir()
-        .chain_err(|| "mktemp dir failed")?;
+        .map_err(|e| anyhow!("mktemp dir failed: {}", e))?;
     let bundle_file = tmp_dir.path().join("bundle");
     let enc_file = tmp_dir.path().join("buncle_enc");
 
@@ -292,7 +285,7 @@ async fn push_to_s3(s3: &Client, settings: &Settings, r: &GitRef) -> Result<()> 
             config
                 .split_ascii_whitespace()
                 .map(|s| s.to_string())
-                .collect_vec()
+                .collect()
         })
         .or_else(|_| git::config("user.email").map(|recip| vec![recip]))?;
 
