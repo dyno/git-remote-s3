@@ -1,66 +1,60 @@
-use super::errors::*;
+use std::fs;
 use std::path::Path;
 use std::process::Command;
-use std::io::{Write};
-use std::fs;
-use std::env;
-
-fn is_encryption_disabled() -> bool {
-    env::var("GIT_S3_ENCRYPT").unwrap_or_else(|_| "1".to_string()) != "1"
-}
+use anyhow::{Result, anyhow, bail};
 
 pub fn encrypt(recipients: &[String], i: &Path, o: &Path) -> Result<()> {
-    if is_encryption_disabled() {
-        // Just copy the file when encryption is disabled
-        fs::copy(i, o).chain_err(|| "failed to copy file")?;
+    if recipients.is_empty() {
+        fs::copy(i, o).map_err(|e| anyhow!("failed to copy file: {}", e))?;
         return Ok(());
     }
-    
+
     let mut cmd = Command::new("gpg");
-    cmd.arg("-q").arg("--batch");
-    for recipient in recipients {
-        cmd.arg("-r").arg(recipient);
+    cmd.arg("--batch")
+        .arg("--yes")
+        .arg("--encrypt");
+
+    for r in recipients {
+        cmd.arg("-r").arg(r);
     }
-    cmd
-        .arg("-o")
-        .arg(o.to_str().chain_err(|| "out path invalid")?)
-        .arg("-e")
-        .arg(i.to_str().chain_err(|| "in path invalid")?);
+
+    cmd.arg("--output")
+        .arg(o.to_str().ok_or_else(|| anyhow!("out path invalid"))?);
+    cmd.arg(i.to_str().ok_or_else(|| anyhow!("in path invalid"))?);
+
     let result = cmd
         .output()
-        .chain_err(|| "failed to run gpg encrypt")?;
+        .map_err(|e| anyhow!("failed to run gpg encrypt: {}", e))?;
+
     if !result.status.success() {
-        write!(std::io::stdout(), "Failed command: {:?}", cmd).unwrap();
-        std::io::stdout().write_all(&result.stdout).unwrap();
-        std::io::stderr().write_all(&result.stderr).unwrap();
         bail!("gpg encrypt failed");
     }
+
     Ok(())
 }
 
 pub fn decrypt(i: &Path, o: &Path) -> Result<()> {
-    if is_encryption_disabled() {
-        // Just copy the file when encryption is disabled
-        fs::copy(i, o).chain_err(|| "failed to copy file")?;
+    if !i.exists() {
+        fs::copy(i, o).map_err(|e| anyhow!("failed to copy file: {}", e))?;
         return Ok(());
     }
-    
+
     let mut cmd = Command::new("gpg");
-    cmd
-        .arg("-q")
-        .arg("--batch")
-        .arg("-o")
-        .arg(o.to_str().chain_err(|| "out path invalid")?)
-        .arg("-d")
-        .arg(i.to_str().chain_err(|| "in path invalid")?);
+    cmd.arg("--batch")
+        .arg("--yes")
+        .arg("--decrypt");
+
+    cmd.arg("--output")
+        .arg(o.to_str().ok_or_else(|| anyhow!("out path invalid"))?);
+    cmd.arg(i.to_str().ok_or_else(|| anyhow!("in path invalid"))?);
+
     let result = cmd
         .output()
-        .chain_err(|| "failed to run gpg decrypt")?;
+        .map_err(|e| anyhow!("failed to run gpg decrypt: {}", e))?;
+
     if !result.status.success() {
-        write!(std::io::stdout(), "Failed command: {:?}", cmd).unwrap();
-        std::io::stdout().write_all(&result.stdout).unwrap();
-        std::io::stderr().write_all(&result.stderr).unwrap();
         bail!("gpg decrypt failed");
     }
+
     Ok(())
 }

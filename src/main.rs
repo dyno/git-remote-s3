@@ -16,10 +16,14 @@ use tracing::{info, warn, error, debug};
 use tracing_subscriber::fmt;
 use std::fs::OpenOptions;
 
-mod errors;
 mod git;
 mod gpg;
 mod s3;
+
+fn is_broken_pipe(error: &anyhow::Error) -> bool {
+    let err_string = error.to_string();
+    err_string.contains("Broken pipe") || err_string.contains("broken pipe")
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -90,7 +94,7 @@ async fn main() -> Result<()> {
     match cmd_loop(&s3, &settings).await {
         Ok(_) => Ok(()),
         Err(e) => {
-            if errors::is_broken_pipe(&e) {
+            if is_broken_pipe(&e) {
                 info!("Exiting due to broken pipe");
                 std::process::exit(0);
             }
@@ -262,7 +266,7 @@ async fn cmd_loop(s3: &Client, settings: &Settings) -> Result<()> {
         };
 
         if let Err(e) = result {
-            if errors::is_broken_pipe(&e) {
+            if is_broken_pipe(&e) {
                 return Ok(());  // Exit gracefully on broken pipe
             }
             return Err(e);
