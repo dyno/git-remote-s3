@@ -1,54 +1,50 @@
-use aws_sdk_s3::{
-    Client,
-    config::Credentials,
-};
-use aws_config;
-use aws_types::region::Region;
+use std::{env, fs, path::Path, path::PathBuf, error::Error, sync::Once};
 use assert_cmd::cargo::cargo_bin;
 use assert_cmd::prelude::*;
-use std::env;
-use std::error::Error;
-use std::fs;
-use std::path::{Path, PathBuf};
 use std::process::Command;
-use tempfile::Builder;
+use aws_sdk_s3::{
+    Client,
+    config::{Credentials, Region},
+};
+use aws_config;
+use tokio;
 use tracing_subscriber::fmt;
-use std::fs::OpenOptions;
+use tempfile::Builder;
 use time::macros::format_description;
 
 const TEST_ENDPOINT: &str = "http://localhost:9001";
 const TEST_ACCESS_KEY: &str = "test";
 const TEST_SECRET_KEY: &str = "test1234";
 
-fn setup() -> PathBuf {
-    // Enable debug logging only for our crate
-    std::env::set_var("RUST_LOG", "git_remote_s3=debug");
-    
-    // Initialize logging to file
-    let file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("/tmp/git-remote-s3.log")
-        .unwrap();
+static INIT_LOGGER: Once = Once::new();
 
-    // Initialize logging to file only, without ANSI colors
-    fmt()
-        .with_env_filter("git_remote_s3=debug")
-        .with_writer(file)
-        .with_ansi(false)
-        .with_file(true)
-        .with_line_number(true)
-        .with_thread_ids(true)
-        .with_target(false)  // Don't need module path since we have file/line
-        .with_timer(fmt::time::UtcTime::new(format_description!("[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:3]")))
-        .init();
+fn setup() -> PathBuf {
+    // Enable debug logging only for our crate if not already set
+    if env::var("RUST_LOG").is_err() {
+        env::set_var("RUST_LOG", "git_remote_s3=debug");
+    }
+
+    // Initialize logging only once
+    INIT_LOGGER.call_once(|| {
+        fmt()
+            .with_env_filter(env::var("RUST_LOG").unwrap())
+            .with_ansi(false)  // Disable colors for better readability
+            .with_file(true)   // Include file and line for context
+            .with_line_number(true)
+            .with_thread_ids(true)
+            .with_target(false)  // Don't need module path since we have file/line
+            .with_timer(fmt::time::UtcTime::new(format_description!("[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:3]")))
+            .init();
+        
+        tracing::info!("Initialized logging");
+    });
     
     let test_dir = Builder::new()
         .prefix("git_s3_test")
         .tempdir()
         .unwrap()
         .into_path();
-    println!("Test dir: {}", test_dir.display());
+    tracing::info!(test_dir = %test_dir.display(), "Created test directory");
     test_dir
 }
 
@@ -162,8 +158,10 @@ async fn integration() -> Result<(), Box<dyn Error>> {
     // Setup s3 bucket
     let _ = delete_bucket_recurse(&client, bucket).await;
     create_bucket(&client, bucket).await?;
+    tracing::info!(bucket, "Created S3 bucket");
 
     let test_dir = setup();
+    tracing::info!("Starting integration test");
 
     let repo1 = test_dir.join("repo1");
     let repo2 = test_dir.join("repo2");
@@ -171,7 +169,7 @@ async fn integration() -> Result<(), Box<dyn Error>> {
     fs::create_dir(&repo1).unwrap();
     fs::create_dir(&repo2).unwrap();
 
-    println!("test: pushing from repo1");
+    tracing::info!(repo = %repo1.display(), "Initializing first repository");
     git(&repo1, "init").assert().success();
     git(&repo1, "config user.email test@example.com").assert().success();
     git(&repo1, "config user.name Test").assert().success();
@@ -179,13 +177,14 @@ async fn integration() -> Result<(), Box<dyn Error>> {
     git(&repo1, "commit --allow-empty -am r1_c1")
         .assert()
         .success();
+    tracing::info!("test: pushing from repo1");
     git(&repo1, "remote add origin s3://git-remote-s3/test")
         .assert()
         .success();
     git(&repo1, "push --set-upstream origin main").assert().success();
     let _sha = git_rev(&repo1);
 
-    println!("test: cloning into repo2");
+    tracing::info!("test: cloning into repo2");
     git(&repo2, "clone s3://git-remote-s3/test .")
         .assert()
         .success();
@@ -195,7 +194,7 @@ async fn integration() -> Result<(), Box<dyn Error>> {
         .assert()
         .success();
 
-    println!("test: push from repo2 and pull into repo1");
+    tracing::info!("test: push from repo2 and pull into repo1");
     git(&repo2, "commit --allow-empty -am r2_c1")
         .assert()
         .success();
@@ -206,7 +205,7 @@ async fn integration() -> Result<(), Box<dyn Error>> {
         .assert()
         .stdout(format!("{} (HEAD -> main, origin/main) r2_c1\n", sha));
 
-    println!("test: force push from repo2");
+    tracing::info!("test: force push from repo2");
     git(&repo1, "commit --allow-empty -am r1_c2")
         .assert()
         .success();
@@ -252,6 +251,7 @@ async fn integration() -> Result<(), Box<dyn Error>> {
 
     // Cleanup
     delete_bucket_recurse(&client, bucket).await?;
+    tracing::info!("Test cleanup complete");
 
     Ok(())
 }

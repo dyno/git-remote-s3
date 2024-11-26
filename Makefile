@@ -2,7 +2,7 @@ SHELL = /bin/bash
 
 export DOCKER_DEFAULT_PLATFORM := linux/amd64
 
-.PHONY: start-minio setup-gpg test build-with-docker install-musl-target build-musl
+.PHONY: start-minio setup-gpg test integration-test build-with-docker install-musl-target build-musl
 
 start-minio:
 	docker run -p 9001:9000 -i --rm   \
@@ -38,9 +38,11 @@ setup-gpg:
 		echo "GPG key for test@example.com already exists"; \
 	fi
 
-test: setup-gpg
+test:
 	RUST_BACKTRACE=full cargo test
 
+integration-test:
+	cargo test --test main_test
 
 bootstrap-rustup:
 	curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
