@@ -16,6 +16,10 @@ use tracing_subscriber::fmt;
 use std::fs::OpenOptions;
 use time::macros::format_description;
 
+const TEST_ENDPOINT: &str = "http://localhost:9001";
+const TEST_ACCESS_KEY: &str = "test";
+const TEST_SECRET_KEY: &str = "test1234";
+
 fn setup() -> PathBuf {
     // Enable debug logging only for our crate
     std::env::set_var("RUST_LOG", "git_remote_s3=debug");
@@ -49,35 +53,31 @@ fn setup() -> PathBuf {
 }
 
 fn git(pwd: &Path, args: &str) -> Command {
-    let my_path = cargo_bin("git-remote-s3");
-    let my_path = my_path.parent().unwrap();
-    let my_path = my_path.to_str().unwrap();
-    let new_path = format!("{}:{}", my_path, env::var("PATH").unwrap());
+    let bin_path = cargo_bin("git-remote-s3");
+    let parent_path = bin_path.parent().unwrap().to_str().unwrap();
+    let new_path = format!("{}:{}", parent_path, env::var("PATH").unwrap());
 
     let mut command = Command::new("git");
     command.current_dir(pwd);
     command.env("PATH", new_path);
-    command.env("S3_ENDPOINT", "http://localhost:9001");
-    command.env("AWS_ACCESS_KEY_ID", "test");
-    command.env("AWS_SECRET_ACCESS_KEY", "test1234");
+    command.env("S3_ENDPOINT", TEST_ENDPOINT);
+    command.env("AWS_ACCESS_KEY_ID", TEST_ACCESS_KEY);
+    command.env("AWS_SECRET_ACCESS_KEY", TEST_SECRET_KEY);
     cmd_args(&mut command, args);
     command
 }
 
 fn cmd_args(command: &mut Command, args: &str) {
-    let words: Vec<_> = args.split_whitespace().collect();
-    for word in words {
-        command.arg(word);
-    }
+    command.args(args.split_whitespace());
 }
 
 async fn create_test_client() -> Result<Client, Box<dyn Error>> {
     let config = aws_config::from_env()
         .region(Region::new("us-east-1"))
-        .endpoint_url("http://localhost:9001")
+        .endpoint_url(TEST_ENDPOINT)
         .credentials_provider(Credentials::new(
-            "test",
-            "test1234",
+            TEST_ACCESS_KEY,
+            TEST_SECRET_KEY,
             None,
             None,
             "test",
