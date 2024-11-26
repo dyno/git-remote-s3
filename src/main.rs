@@ -21,11 +21,6 @@ mod gpg;
 mod s3;
 mod common;
 
-fn is_broken_pipe(error: &anyhow::Error) -> bool {
-    let err_string = error.to_string();
-    err_string.contains("Broken pipe") || err_string.contains("broken pipe")
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     // Only initialize logging if not in git protocol mode
@@ -95,10 +90,6 @@ async fn main() -> Result<()> {
     match cmd_loop(&s3, &settings).await {
         Ok(_) => Ok(()),
         Err(e) => {
-            if is_broken_pipe(&e) {
-                info!("Exiting due to broken pipe");
-                std::process::exit(0);
-            }
             error!(?e, "Command loop failed");
             Err(e)
         }
@@ -267,9 +258,7 @@ async fn cmd_loop(s3: &Client, settings: &Settings) -> Result<()> {
         };
 
         if let Err(e) = result {
-            if is_broken_pipe(&e) {
-                return Ok(());  // Exit gracefully on broken pipe
-            }
+            error!(?e, "Command execution failed");
             return Err(e);
         }
     }
