@@ -9,6 +9,7 @@ use aws_types::region::Region;
 use assert_cmd::cargo::cargo_bin;
 use assert_cmd::prelude::*;
 use std::env;
+use std::error::Error;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -36,7 +37,7 @@ fn cmd_args(command: &mut Command, args: &str) {
     }
 }
 
-async fn create_test_client() -> Result<Client, Box<dyn std::error::Error>> {
+async fn create_test_client() -> Result<Client, Box<dyn Error>> {
     let config = aws_config::from_env()
         .region(Region::new("us-east-1"))
         .endpoint_url("http://localhost:9001")
@@ -57,7 +58,7 @@ async fn create_test_client() -> Result<Client, Box<dyn std::error::Error>> {
     Ok(Client::from_conf(s3_config))
 }
 
-async fn delete_object(client: &Client, bucket: &str, filename: &str) -> Result<(), Box<dyn std::error::Error>> {
+async fn delete_object(client: &Client, bucket: &str, filename: &str) -> Result<(), Box<dyn Error>> {
     client
         .delete_object()
         .bucket(bucket)
@@ -67,7 +68,7 @@ async fn delete_object(client: &Client, bucket: &str, filename: &str) -> Result<
     Ok(())
 }
 
-async fn list_keys_in_bucket(client: &Client, bucket: &str) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+async fn list_keys_in_bucket(client: &Client, bucket: &str) -> Result<Vec<String>, Box<dyn Error>> {
     match client.list_objects_v2().bucket(bucket).send().await {
         Ok(output) => {
             Ok(output
@@ -81,7 +82,7 @@ async fn list_keys_in_bucket(client: &Client, bucket: &str) -> Result<Vec<String
     }
 }
 
-async fn create_bucket(client: &Client, bucket: &str) -> Result<(), Box<dyn std::error::Error>> {
+async fn create_bucket(client: &Client, bucket: &str) -> Result<(), Box<dyn Error>> {
     client
         .create_bucket()
         .bucket(bucket)
@@ -95,12 +96,12 @@ async fn create_bucket(client: &Client, bucket: &str) -> Result<(), Box<dyn std:
     Ok(())
 }
 
-async fn delete_bucket(client: &Client, bucket: &str) -> Result<(), Box<dyn std::error::Error>> {
+async fn delete_bucket(client: &Client, bucket: &str) -> Result<(), Box<dyn Error>> {
     client.delete_bucket().bucket(bucket).send().await?;
     Ok(())
 }
 
-async fn delete_bucket_recurse(client: &Client, bucket: &str) -> Result<(), Box<dyn std::error::Error>> {
+async fn delete_bucket_recurse(client: &Client, bucket: &str) -> Result<(), Box<dyn Error>> {
     let keys = list_keys_in_bucket(client, bucket).await?;
     for key in keys {
         delete_object(client, bucket, &key).await?;
@@ -120,7 +121,7 @@ fn git_rev_long(pwd: &Path) -> String {
 }
 
 #[tokio::test]
-async fn integration() -> Result<(), Box<dyn std::error::Error>> {
+async fn integration() -> Result<(), Box<dyn Error>> {
     let client = create_test_client().await?;
     let bucket = "git-remote-s3";
 
