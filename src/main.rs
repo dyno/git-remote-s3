@@ -35,6 +35,7 @@ async fn main() -> Result<()> {
         fmt()
             .with_env_filter(env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string()))
             .with_writer(file)
+            .with_ansi(false)
             .init();
 
         // If RUST_LOG_STDERR=1 is set, also log to stderr

@@ -26,10 +26,11 @@ fn setup() -> PathBuf {
         .open("/tmp/git-remote-s3.log")
         .unwrap();
 
-    // Initialize logging to file only
+    // Initialize logging to file only, without ANSI colors
     fmt()
         .with_env_filter("git_remote_s3=debug")
         .with_writer(file)
+        .with_ansi(false)
         .init();
     
     let test_dir = Builder::new()
