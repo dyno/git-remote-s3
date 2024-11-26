@@ -12,10 +12,25 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tempfile::Builder;
+use tracing_subscriber::fmt;
+use std::fs::OpenOptions;
 
 fn setup() -> PathBuf {
-    // Disable logging for tests
-    std::env::set_var("RUST_LOG", "off");
+    // Enable debug logging only for our crate
+    std::env::set_var("RUST_LOG", "git_remote_s3=debug");
+    
+    // Initialize logging to file
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/tmp/git-remote-s3.log")
+        .unwrap();
+
+    // Initialize logging to file only
+    fmt()
+        .with_env_filter("git_remote_s3=debug")
+        .with_writer(file)
+        .init();
     
     let test_dir = Builder::new()
         .prefix("git_s3_test")
