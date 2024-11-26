@@ -2,6 +2,8 @@ SHELL = /bin/bash
 
 export DOCKER_DEFAULT_PLATFORM := linux/amd64
 
+.PHONY: start-minio setup-gpg test build-with-docker install-musl-target build-musl
+
 start-minio:
 	docker run -p 9001:9000 -i --rm   \
 		-e MINIO_ROOT_USER=test         \
@@ -39,10 +41,12 @@ setup-gpg:
 test: setup-gpg
 	RUST_BACKTRACE=full cargo test
 
-build-with-docker:
-	docker run -it --rm                      \
-    --name git_remote_s3_builder           \
-    -v $(shell pwd):/usr/src/git-remote-s3 \
-    -w /usr/src/git-remote-s3 rust:1.82    \
-    cargo build --release                  \
-		# END
+
+bootstrap-rustup:
+	curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+bootstrap-cross:
+	cargo install cross --git https://github.com/cross-rs/cross
+
+cross-build-musl:
+	cross build --release --target x86_64-unknown-linux-musl
