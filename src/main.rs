@@ -23,28 +23,23 @@ mod common;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Only initialize logging if not in git protocol mode
-    if !env::args().any(|arg| arg == "list" || arg == "push") {
-        // Create or append to log file
+    let is_git_protocol = env::args().any(|arg| arg == "list" || arg == "push");
+
+    // Set up panic handler to use stderr
+    std::panic::set_hook(Box::new(|_| {
+        // Silently ignore broken pipe errors
+        if std::env::var_os("RUST_LOG").is_some() {
+            eprintln!("Error: git-remote-s3 operation failed");
+        }
+    }));
+
+    if !is_git_protocol {
+        // Only initialize file logging when not in git protocol mode
         let file = OpenOptions::new()
             .create(true)
             .append(true)
             .open("/tmp/git-remote-s3.log")
             .map_err(|e| anyhow!("Failed to open log file: {}", e))?;
-
-        // Initialize logging to file only, with panic hook to avoid stdout after pipe close
-        std::panic::set_hook(Box::new(|panic_info| {
-            if let Some(s) = panic_info.payload().downcast_ref::<String>() {
-                eprintln!("panic occurred: {}", s);
-            } else if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
-                eprintln!("panic occurred: {}", s);
-            } else {
-                eprintln!("panic occurred");
-            }
-            if let Some(location) = panic_info.location() {
-                eprintln!("panic occurred in file '{}' at line {}", location.file(), location.line());
-            }
-        }));
 
         fmt()
             .with_env_filter(env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string()))
@@ -53,7 +48,7 @@ async fn main() -> Result<()> {
             .with_file(true)
             .with_line_number(true)
             .with_thread_ids(true)
-            .with_target(false)  // Don't need module path since we have file/line
+            .with_target(false)
             .with_timer(fmt::time::UtcTime::new(format_description!("[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:3]")))
             .init();
 
@@ -63,8 +58,26 @@ async fn main() -> Result<()> {
                 .with_env_filter(env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string()))
                 .init();
         }
+    } else {
+        // In git protocol mode, only log to file if RUST_LOG is set
+        if let Ok(log_level) = env::var("RUST_LOG") {
+            let file = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("/tmp/git-remote-s3.log")
+                .map_err(|e| anyhow!("Failed to open log file: {}", e))?;
 
-        info!("Starting new session");
+            fmt()
+                .with_env_filter(log_level)
+                .with_writer(file)
+                .with_ansi(false)
+                .with_file(true)
+                .with_line_number(true)
+                .with_thread_ids(true)
+                .with_target(false)
+                .with_timer(fmt::time::UtcTime::new(format_description!("[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:3]")))
+                .init();
+        }
     }
 
     let mut args = env::args();
