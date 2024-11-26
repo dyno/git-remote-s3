@@ -12,6 +12,7 @@ use std::io;
 use std::path::Path;
 use std::time::Duration;
 use tempfile::Builder;
+use tracing::{info, warn, error, debug};
 
 mod errors;
 mod git;
@@ -20,15 +21,26 @@ mod s3;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Only initialize logging if not in git protocol mode
+    if !env::args().any(|arg| arg == "list" || arg == "push") {
+        tracing_subscriber::fmt()
+            .with_env_filter(env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string()))
+            .init();
+    }
+
     let mut args = env::args();
     args.next();
     let alias = args.next().ok_or_else(|| anyhow!("must provide alias"))?;
     let url = args.next().ok_or_else(|| anyhow!("must provide url"))?;
 
+    info!(?alias, ?url, "Starting git-remote-s3");
+
     let url_path = url.trim_start_matches("s3://");
     let slash_idx = url_path.find('/').ok_or_else(|| anyhow!("url must contain /"))?;
     let bucket = &url_path[..slash_idx];
     let path = &url_path[(slash_idx + 1)..];
+
+    debug!(?bucket, ?path, "Parsed S3 URL");
 
     let s3_settings = Settings {
         remote_alias: env::var("REMOTE_ALIAS").unwrap_or_else(|_| alias.clone()),
@@ -40,7 +52,10 @@ async fn main() -> Result<()> {
         region: env::var("AWS_REGION").ok(),
     };
 
+    debug!(?s3_settings, "Created S3 settings");
+
     let s3 = get_s3_client(&s3_settings).await?;
+    info!("S3 client initialized");
 
     let settings = Settings {
         remote_alias: alias,
@@ -56,10 +71,10 @@ async fn main() -> Result<()> {
         Ok(_) => Ok(()),
         Err(e) => {
             if errors::is_broken_pipe(&e) {
-                // Exit gracefully on broken pipe
+                info!("Exiting due to broken pipe");
                 std::process::exit(0);
             }
-            eprintln!("Error: {}", e);
+            error!(?e, "Command loop failed");
             Err(e)
         }
     }
@@ -249,22 +264,31 @@ fn cmd_capabilities() -> Result<()> {
 }
 
 async fn fetch_from_s3(s3: &Client, settings: &Settings, r: &GitRef) -> Result<()> {
+    info!(?r, "Fetching from S3");
+    
     let tmp_dir = Builder::new()
         .prefix("s3_fetch")
         .tempdir()
         .map_err(|e| anyhow!("mktemp dir failed: {}", e))?;
+        
+    debug!(?tmp_dir, "Created temporary directory");
+    
     let bundle_file = tmp_dir.path().join("bundle");
-    let enc_file = tmp_dir.path().join("buncle_enc");
+    let enc_file = tmp_dir.path().join("bundle_enc");
 
     let path = r.bundle_path(settings.root.key.to_owned());
     let o = s3::Key {
         bucket: settings.root.bucket.to_owned(),
         key: path,
     };
+    
+    debug!(?o, "Fetching bundle from S3");
     fetch(s3, &o, &enc_file).await?;
 
+    debug!("Decrypting bundle");
     gpg::decrypt(&enc_file, &bundle_file)?;
 
+    info!(?r.name, "Unbundling Git bundle");
     git::bundle_unbundle(&bundle_file, &r.name)?;
 
     Ok(())
@@ -276,7 +300,7 @@ async fn push_to_s3(s3: &Client, settings: &Settings, r: &GitRef) -> Result<()> 
         .tempdir()
         .map_err(|e| anyhow!("mktemp dir failed: {}", e))?;
     let bundle_file = tmp_dir.path().join("bundle");
-    let enc_file = tmp_dir.path().join("buncle_enc");
+    let enc_file = tmp_dir.path().join("bundle_enc");
 
     git::bundle_create(&bundle_file, &r.name)?;
 
@@ -318,6 +342,8 @@ async fn cmd_fetch(s3: &Client, settings: &Settings, sha: &str, name: &str) -> R
 async fn cmd_push(s3: &Client, settings: &Settings, push_ref: &str) -> Result<()> {
     let force = push_ref.starts_with('+');
 
+    info!(?push_ref, force, "Pushing ref");
+
     let mut split = push_ref.split(':');
 
     let src_ref = split.next().unwrap();
@@ -325,6 +351,7 @@ async fn cmd_push(s3: &Client, settings: &Settings, push_ref: &str) -> Result<()
     let dst_ref = split.next().unwrap();
 
     if src_ref != dst_ref {
+        warn!(?src_ref, ?dst_ref, "Source and destination refs don't match");
         bail!("src_ref != dst_ref")
     }
 
@@ -332,6 +359,9 @@ async fn cmd_push(s3: &Client, settings: &Settings, push_ref: &str) -> Result<()
     let remote_refs = all_remote_refs.get(src_ref);
     let prev_ref = remote_refs.map(|rs| rs.latest_ref());
     let local_sha = git::rev_parse(src_ref)?;
+
+    debug!(?local_sha, "Resolved local SHA");
+
     let local_ref = GitRef {
         name: src_ref.to_string(),
         sha: local_sha,
@@ -341,6 +371,7 @@ async fn cmd_push(s3: &Client, settings: &Settings, push_ref: &str) -> Result<()
         || match prev_ref {
             Some(prev_ref) => {
                 if !git::is_ancestor(&local_ref.sha, &prev_ref.reference.sha)? {
+                    warn!(?dst_ref, "Remote changed - force push required");
                     println!("error {} remote changed: force push to add new ref, the old ref will be kept until its merged)", dst_ref);
                     false
                 } else {
@@ -351,11 +382,13 @@ async fn cmd_push(s3: &Client, settings: &Settings, push_ref: &str) -> Result<()
         };
 
     if can_push {
+        info!(?local_ref, "Pushing to S3");
         push_to_s3(s3, settings, &local_ref).await?;
 
         // Delete any ref that is an ancestor of the one we pushed
         for r in remote_refs.iter().flat_map(|r| r.by_update_time.iter()) {
             if git::is_ancestor(&local_ref.sha, &r.reference.sha)? {
+                debug!(?r.object, "Deleting old ref");
                 s3::del(s3, &r.object).await?;
             }
         }
@@ -367,9 +400,10 @@ async fn cmd_push(s3: &Client, settings: &Settings, push_ref: &str) -> Result<()
     Ok(())
 }
 
+#[derive(Debug)]
 pub struct Settings {
-    remote_alias: String,
-    root: s3::Key,
-    endpoint: Option<String>,
-    region: Option<String>,
+    pub remote_alias: String,
+    pub root: s3::Key,
+    pub endpoint: Option<String>,
+    pub region: Option<String>,
 }

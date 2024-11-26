@@ -9,8 +9,22 @@ use assert_cmd::prelude::*;
 use std::env;
 use std::error::Error;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use tempfile::Builder;
+
+fn setup() -> PathBuf {
+    // Disable logging for tests
+    std::env::set_var("RUST_LOG", "off");
+    
+    let test_dir = Builder::new()
+        .prefix("git_s3_test")
+        .tempdir()
+        .unwrap()
+        .into_path();
+    println!("Test dir: {}", test_dir.display());
+    test_dir
+}
 
 fn git(pwd: &Path, args: &str) -> Command {
     let my_path = cargo_bin("git-remote-s3");
@@ -127,11 +141,7 @@ async fn integration() -> Result<(), Box<dyn Error>> {
     let _ = delete_bucket_recurse(&client, bucket).await;
     create_bucket(&client, bucket).await?;
 
-    let test_dir = std::env::temp_dir().join("git_s3_test");
-    let _ = fs::remove_dir_all(&test_dir);
-    fs::create_dir_all(&test_dir).unwrap();
-
-    println!("Test dir: {}", test_dir.display());
+    let test_dir = setup();
 
     let repo1 = test_dir.join("repo1");
     let repo2 = test_dir.join("repo2");

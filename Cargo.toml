@@ -15,13 +15,16 @@ readme = "README.md"
 [dependencies]
 error-chain = "0.12.1"
 itertools = "0.8.2"
-tempfile = "3.1.0"
 aws-config = "0.56"
 aws-sdk-s3 = "0.34"
 aws-types = "0.56"
 aws-smithy-runtime = { version = "0.56", features = ["test-util"] }
 aws-smithy-types = "0.56"
-tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1.0", features = ["full"] }
+anyhow = "1.0"
+tempfile = "3.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [dev-dependencies]
 assert_cmd = "0.11"
