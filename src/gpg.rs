@@ -1,71 +1,75 @@
 use crate::common::log_command;
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, Result};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
-use tracing::{debug, error};
+use tracing::{debug, error, instrument};
 
-pub fn encrypt(recipients: &[String], i: &Path, o: &Path) -> Result<()> {
+/// Encrypt a file with GPG
+#[instrument]
+pub fn encrypt(recipients: &[String], input: &Path, output: &Path) -> Result<()> {
     if recipients.is_empty() {
         debug!("No GPG recipients specified, copying file without encryption");
-        fs::copy(i, o).map_err(|e| anyhow!("failed to copy file: {}", e))?;
+        fs::copy(input, output).map_err(|e| anyhow!("failed to copy file: {}", e))?;
         return Ok(());
     }
 
-    debug!(?recipients, ?i, ?o, "Encrypting file with GPG");
-    let mut cmd = Command::new("gpg");
-    cmd.arg("--batch").arg("--yes").arg("--encrypt");
-
-    for r in recipients {
-        cmd.arg("-r").arg(r);
-    }
-
-    cmd.arg("--output")
-        .arg(o.to_str().ok_or_else(|| anyhow!("out path invalid"))?)
-        .arg(i.to_str().ok_or_else(|| anyhow!("in path invalid"))?);
-
-    log_command(&cmd);
-
-    let result = cmd
-        .output()
-        .map_err(|e| anyhow!("failed to run gpg encrypt: {}", e))?;
-
-    if !result.status.success() {
-        error!("GPG encryption failed");
-        bail!("gpg encrypt failed");
-    }
-
-    debug!("File encrypted successfully");
-    Ok(())
-}
-
-pub fn decrypt(i: &Path, o: &Path) -> Result<()> {
-    if !i.exists() {
-        debug!("Input file doesn't exist, copying file without decryption");
-        fs::copy(i, o).map_err(|e| anyhow!("failed to copy file: {}", e))?;
-        return Ok(());
-    }
-
-    debug!(?i, ?o, "Decrypting file with GPG");
     let mut cmd = Command::new("gpg");
     cmd.arg("--batch")
         .arg("--yes")
-        .arg("--decrypt")
         .arg("--output")
-        .arg(o.to_str().ok_or_else(|| anyhow!("out path invalid"))?)
-        .arg(i.to_str().ok_or_else(|| anyhow!("in path invalid"))?);
+        .arg(output)
+        .arg("--encrypt");
+
+    for r in recipients {
+        cmd.arg("--recipient").arg(r);
+    }
+
+    cmd.arg(input);
 
     log_command(&cmd);
 
-    let result = cmd
-        .output()
-        .map_err(|e| anyhow!("failed to run gpg decrypt: {}", e))?;
+    let output = cmd.output().map_err(|e| {
+        error!(?e, "Failed to run GPG encrypt");
+        anyhow!("failed to run gpg: {}", e)
+    })?;
 
-    if !result.status.success() {
-        error!("GPG decryption failed");
-        bail!("gpg decrypt failed");
+    if !output.status.success() {
+        error!(?input, ?recipients, "GPG encryption failed");
+        return Err(anyhow!("gpg encrypt failed"));
     }
 
-    debug!("File decrypted successfully");
+    Ok(())
+}
+
+/// Decrypt a file with GPG
+#[instrument]
+pub fn decrypt(input: &Path, output: &Path) -> Result<()> {
+    if !input.exists() {
+        debug!("Input file doesn't exist, copying file without decryption");
+        fs::copy(input, output).map_err(|e| anyhow!("failed to copy file: {}", e))?;
+        return Ok(());
+    }
+
+    let mut cmd = Command::new("gpg");
+    cmd.arg("--batch")
+        .arg("--yes")
+        .arg("--output")
+        .arg(output)
+        .arg("--decrypt")
+        .arg(input);
+
+    log_command(&cmd);
+
+    let output = cmd.output().map_err(|e| {
+        error!(?e, "Failed to run GPG decrypt");
+        anyhow!("failed to run gpg: {}", e)
+    })?;
+
+    if !output.status.success() {
+        error!(?input, "GPG decryption failed");
+        return Err(anyhow!("gpg decrypt failed"));
+    }
+
     Ok(())
 }
