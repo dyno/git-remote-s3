@@ -3,6 +3,7 @@ use assert_cmd::prelude::*;
 use aws_config;
 use aws_sdk_s3::{
     config::{Credentials, Region},
+    types::{BucketLocationConstraint, CreateBucketConfiguration},
     Client,
 };
 use git_remote_s3::log::GoogleEventFormat;
@@ -112,8 +113,8 @@ async fn create_bucket(client: &Client, bucket: &str) -> Result<()> {
         .create_bucket()
         .bucket(bucket)
         .create_bucket_configuration(
-            aws_sdk_s3::types::CreateBucketConfiguration::builder()
-                .location_constraint(aws_sdk_s3::types::BucketLocationConstraint::UsEast2)
+            CreateBucketConfiguration::builder()
+                .location_constraint(BucketLocationConstraint::UsEast2)
                 .build(),
         )
         .send()
