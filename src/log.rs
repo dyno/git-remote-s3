@@ -1,10 +1,60 @@
 use std::fmt;
 use time::UtcOffset;
+use tracing::field::{Field, Visit};
 use tracing::Subscriber;
 use tracing_subscriber::{
+    field::RecordFields,
     fmt::{format::Writer, FmtContext, FormatEvent, FormatFields},
     registry::LookupSpan,
 };
+
+/// Custom field formatter that disables ANSI colors
+pub struct GoogleFormatFields;
+
+impl<'writer> FormatFields<'writer> for GoogleFormatFields {
+    fn format_fields<R: RecordFields>(
+        &self,
+        mut writer: Writer<'writer>,
+        fields: R,
+    ) -> fmt::Result {
+        let mut visitor = FieldVisitor {
+            writer: &mut writer,
+            is_first: true,
+        };
+        fields.record(&mut visitor);
+        Ok(())
+    }
+}
+
+struct FieldVisitor<'a, 'b> {
+    writer: &'a mut Writer<'b>,
+    is_first: bool,
+}
+
+impl<'a, 'b> Visit for FieldVisitor<'a, 'b> {
+    fn record_debug(&mut self, field: &Field, value: &dyn fmt::Debug) {
+        if !self.is_first {
+            let _ = write!(self.writer, " ");
+        }
+        if field.name() != "message" {
+            let _ = write!(self.writer, "{}=", field.name());
+        }
+        let _ = write!(self.writer, "{:?}", value);
+        self.is_first = false;
+    }
+
+    fn record_str(&mut self, field: &Field, value: &str) {
+        if !self.is_first {
+            let _ = write!(self.writer, " ");
+        }
+        if field.name() != "message" {
+            let _ = write!(self.writer, "{}=\"{}\"", field.name(), value);
+        } else {
+            let _ = write!(self.writer, "{}", value);
+        }
+        self.is_first = false;
+    }
+}
 
 /// Custom event formatter that mimics Google Cloud (absl) logging format
 pub struct GoogleEventFormat;
@@ -57,8 +107,8 @@ where
             )?;
         }
 
-        // Format the actual event data
-        ctx.field_format().format_fields(writer.by_ref(), event)?;
+        // Format the actual event data using GoogleFormatFields
+        ctx.format_fields(writer.by_ref(), event)?;
 
         writeln!(writer)
     }

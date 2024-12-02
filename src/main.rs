@@ -35,7 +35,9 @@ async fn main() -> Result<()> {
         .with_env_filter(filter)
         .with_writer(move || file.try_clone().unwrap())
         .event_format(log::GoogleEventFormat)
+        .fmt_fields(log::GoogleFormatFields)
         .init();
+    info!(message = "-".repeat(80));
 
     let mut args = env::args();
     args.next();
