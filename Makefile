@@ -2,7 +2,15 @@ SHELL = /bin/bash
 
 export DOCKER_DEFAULT_PLATFORM := linux/amd64
 
-.PHONY: start-minio setup-gpg test integration-test build-with-docker install-musl-target build-musl
+.PHONY: start-minio     \
+		setup-gpg           \
+		test                \
+		integration-test    \
+		bootstrap-rustup    \
+		bootstrap-cross     \
+		cross-build-x86_64  \
+		cross-build-aarch64 \
+		# END
 
 start-minio:
 	docker run -p 9001:9000 -i --rm   \
