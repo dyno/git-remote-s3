@@ -44,11 +44,7 @@ async fn test_s3_operations() -> Result<()> {
         .load()
         .await;
 
-    let s3_config = aws_sdk_s3::config::Builder::from(&config)
-        .force_path_style(true)
-        .build();
-
-    let s3 = Client::from_conf(s3_config);
+    let s3 = s3::create_client(&config, true);
     ensure_test_bucket(&s3).await?;
 
     // Create a test file

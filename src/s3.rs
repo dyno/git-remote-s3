@@ -2,8 +2,9 @@ use std::path::Path;
 use tracing::instrument;
 
 use anyhow::Result;
-use aws_sdk_s3::primitives::ByteStream;
-use aws_sdk_s3::Client;
+use aws_config::{meta::region::RegionProviderChain, SdkConfig};
+use aws_sdk_s3::{config::Builder as S3Builder, primitives::ByteStream, Client};
+use aws_types::region::Region;
 
 #[derive(Debug)]
 pub struct Key {
@@ -64,4 +65,18 @@ pub async fn rename(s3: &Client, from: &Key, to: &Key) -> Result<()> {
     del(s3, from).await?;
 
     Ok(())
+}
+
+/// Create an S3 client from AWS SDK configuration
+pub fn create_client(config: &SdkConfig, force_path_style: bool) -> Client {
+    let mut client_config = S3Builder::from(config);
+    client_config.set_force_path_style(Some(force_path_style));
+    Client::from_conf(client_config.build())
+}
+
+/// Create a region provider chain with a default region
+pub fn create_region_provider(region: Option<String>) -> RegionProviderChain {
+    RegionProviderChain::first_try(region.map(Region::new))
+        .or_default_provider()
+        .or_else(Region::new("us-east-1"))
 }

@@ -1,19 +1,18 @@
+use anyhow::Result;
 use assert_cmd::cargo::cargo_bin;
 use assert_cmd::prelude::*;
 use aws_config;
 use aws_sdk_s3::{
     config::{Credentials, Region},
-    types::{BucketLocationConstraint, CreateBucketConfiguration},
     Client,
 };
-use git_remote_s3::log::GoogleEventFormat;
+use git_remote_s3::{log::GoogleEventFormat, s3};
 use std::process::Command;
 use std::{env, fs, path::Path, path::PathBuf, sync::Once};
 use tempfile::Builder;
 use tokio;
 use tracing::{debug, info};
 use tracing_subscriber::EnvFilter;
-use anyhow::Result;
 
 const TEST_REGION: &str = "us-east-1";
 const TEST_ENDPOINT: &str = "http://localhost:9001";
@@ -75,18 +74,10 @@ async fn create_test_client() -> Result<Client> {
         .load()
         .await;
 
-    let s3_config = aws_sdk_s3::config::Builder::from(&config)
-        .force_path_style(true)
-        .build();
-
-    Ok(Client::from_conf(s3_config))
+    Ok(s3::create_client(&config, true))
 }
 
-async fn delete_object(
-    client: &Client,
-    bucket: &str,
-    filename: &str,
-) -> Result<()> {
+async fn delete_object(client: &Client, bucket: &str, filename: &str) -> Result<()> {
     client
         .delete_object()
         .bucket(bucket)
@@ -113,8 +104,8 @@ async fn create_bucket(client: &Client, bucket: &str) -> Result<()> {
         .create_bucket()
         .bucket(bucket)
         .create_bucket_configuration(
-            CreateBucketConfiguration::builder()
-                .location_constraint(BucketLocationConstraint::UsEast2)
+            aws_sdk_s3::types::CreateBucketConfiguration::builder()
+                .location_constraint(aws_sdk_s3::types::BucketLocationConstraint::UsEast2)
                 .build(),
         )
         .send()

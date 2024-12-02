@@ -1,7 +1,6 @@
 use anyhow::{anyhow, Result};
-use aws_config::{meta::region::RegionProviderChain, retry::RetryConfig, timeout::TimeoutConfig};
+use aws_config::{retry::RetryConfig, timeout::TimeoutConfig};
 use aws_sdk_s3::Client;
-use aws_types::region::Region;
 use std::{
     collections::HashMap,
     env, io,
@@ -91,9 +90,7 @@ async fn main() -> Result<()> {
 }
 
 async fn get_s3_client(settings: &Settings) -> Result<Client> {
-    let region_provider = RegionProviderChain::first_try(settings.region.clone().map(Region::new))
-        .or_default_provider()
-        .or_else(Region::new("us-east-1"));
+    let region_provider = s3::create_region_provider(settings.region.clone());
 
     let mut config_builder = aws_config::from_env()
         .region(region_provider)
@@ -109,9 +106,7 @@ async fn get_s3_client(settings: &Settings) -> Result<Client> {
     }
 
     let config = config_builder.load().await;
-    let mut client_config = aws_sdk_s3::config::Builder::from(&config);
-    client_config.set_force_path_style(Some(true));
-    Ok(Client::from_conf(client_config.build()))
+    Ok(s3::create_client(&config, true))
 }
 
 #[derive(Debug)]
