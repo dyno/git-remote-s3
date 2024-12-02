@@ -17,12 +17,7 @@ pub fn bundle_create(bundle: &Path, ref_name: &str, dir: &Path) -> Result<()> {
         .current_dir(dir);
 
     log_command(&cmd);
-
-    let output = cmd.output().map_err(|e| {
-        error!(?e, "Failed to run git bundle create");
-        anyhow!("failed to run git: {}", e)
-    })?;
-
+    let output = cmd.output()?;
     if !output.status.success() {
         error!(?bundle, ?ref_name, "Git bundle create command failed");
         return Err(anyhow!("git bundle failed"));
@@ -47,12 +42,7 @@ pub fn bundle_unbundle(bundle: &Path, ref_name: &str, dir: &Path) -> Result<()> 
     }
 
     log_command(&cmd);
-
-    let output = cmd.output().map_err(|e| {
-        error!(?e, "Failed to run git bundle unbundle");
-        anyhow!("failed to run git: {}", e)
-    })?;
-
+    let output = cmd.output()?;
     if !output.status.success() {
         error!(?bundle, ?ref_name, "Git bundle unbundle command failed");
         return Err(anyhow!("git bundle failed"));
@@ -67,12 +57,7 @@ pub fn config(setting: &str, dir: &Path) -> Result<String> {
     cmd.arg("config").arg(setting).current_dir(dir);
 
     log_command(&cmd);
-
-    let output = cmd.output().map_err(|e| {
-        error!(?e, "Failed to run git config");
-        anyhow!("failed to run git: {}", e)
-    })?;
-
+    let output = cmd.output()?;
     if !output.status.success() {
         error!(?setting, "Git config command failed");
         return Err(anyhow!("git config failed"));
@@ -94,15 +79,7 @@ pub fn is_ancestor(base_ref: &str, remote_ref: &str, dir: &Path) -> Result<bool>
         .current_dir(dir);
 
     log_command(&cmd);
-
-    let base_exists = cmd
-        .output()
-        .map_err(|e| {
-            error!(?e, "Failed to run git rev-parse");
-            anyhow!("failed to run git: {}", e)
-        })?
-        .status
-        .success();
+    let base_exists = cmd.output()?.status.success();
 
     let mut cmd = Command::new("git");
     cmd.arg("rev-parse")
@@ -112,16 +89,7 @@ pub fn is_ancestor(base_ref: &str, remote_ref: &str, dir: &Path) -> Result<bool>
         .current_dir(dir);
 
     log_command(&cmd);
-
-    let remote_exists = cmd
-        .output()
-        .map_err(|e| {
-            error!(?e, "Failed to run git rev-parse");
-            anyhow!("failed to run git: {}", e)
-        })?
-        .status
-        .success();
-
+    let remote_exists = cmd.output()?.status.success();
     if !base_exists || !remote_exists {
         return Ok(false);
     }
@@ -134,12 +102,7 @@ pub fn is_ancestor(base_ref: &str, remote_ref: &str, dir: &Path) -> Result<bool>
         .current_dir(dir);
 
     log_command(&cmd);
-
-    let output = cmd.output().map_err(|e| {
-        error!(?e, "Failed to run git merge-base");
-        anyhow!("failed to run git: {}", e)
-    })?;
-
+    let output = cmd.output()?;
     if !output.status.success() && output.status.code() != Some(1) {
         error!(?base_ref, ?remote_ref, "Git merge-base command failed");
         return Err(anyhow!("git merge-base failed"));
@@ -152,14 +115,9 @@ pub fn is_ancestor(base_ref: &str, remote_ref: &str, dir: &Path) -> Result<bool>
 pub fn rev_parse(rev: &str, dir: &Path) -> Result<String> {
     let mut cmd = Command::new("git");
     cmd.arg("rev-parse").arg(rev).current_dir(dir);
-
     log_command(&cmd);
 
-    let output = cmd.output().map_err(|e| {
-        error!(?e, "Failed to run git rev-parse");
-        anyhow!("failed to run git: {}", e)
-    })?;
-
+    let output = cmd.output()?;
     if !output.status.success() {
         error!(?rev, "Git rev-parse command failed");
         return Err(anyhow!("git rev-parse failed"));

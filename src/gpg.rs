@@ -29,13 +29,9 @@ pub fn encrypt(recipients: &[String], input: &Path, output: &Path) -> Result<()>
 
     log_command(&cmd);
 
-    let output = cmd.output().map_err(|e| {
-        error!(?e, "Failed to run GPG encrypt");
-        anyhow!("failed to run gpg: {}", e)
-    })?;
-
+    let output = cmd.output()?;
     if !output.status.success() {
-        error!(?input, ?recipients, "GPG encryption failed");
+        error!(?input, ?recipients, stderr=?String::from_utf8_lossy(&output.stderr), "GPG encryption failed");
         return Err(anyhow!("gpg encrypt failed"));
     }
 
@@ -61,13 +57,9 @@ pub fn decrypt(input: &Path, output: &Path) -> Result<()> {
 
     log_command(&cmd);
 
-    let output = cmd.output().map_err(|e| {
-        error!(?e, "Failed to run GPG decrypt");
-        anyhow!("failed to run gpg: {}", e)
-    })?;
-
+    let output = cmd.output()?;
     if !output.status.success() {
-        error!(?input, "GPG decryption failed");
+        error!(?input, stderr=?String::from_utf8_lossy(&output.stderr), "GPG decryption failed");
         return Err(anyhow!("gpg decrypt failed"));
     }
 
