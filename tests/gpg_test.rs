@@ -24,12 +24,6 @@ fn test_gpg_no_recipients() -> Result<()> {
 
 #[test]
 fn test_gpg_with_recipients() -> Result<()> {
-    // Skip if GPG not available
-    if !has_gpg() {
-        println!("Skipping GPG test as gpg is not available");
-        return Ok(());
-    }
-
     // Create a temporary input file with some content
     let mut input_file = NamedTempFile::new()?;
     write!(input_file, "secret content")?;
@@ -69,14 +63,6 @@ fn test_gpg_missing_file() -> Result<()> {
     assert!(result.is_err());
 
     Ok(())
-}
-
-// Helper function to check if gpg is available
-fn has_gpg() -> bool {
-    std::process::Command::new("gpg")
-        .arg("--version")
-        .output()
-        .is_ok()
 }
 
 // Helper function to get a test GPG key
