@@ -25,7 +25,6 @@ anyhow = "1.0"
 aws-config = "0.56"
 aws-sdk-s3 = "0.30"
 aws-types = "0.56"
-bytes = "1.4"
 tokio = { version = "1.32", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "time"] }
