@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 use anyhow::{anyhow, Result};
 use aws_sdk_s3::error::SdkError;
 use aws_sdk_s3::operation::get_object::GetObjectError;
@@ -6,11 +7,13 @@ use std::path::Path;
 use tracing::{debug, error};
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct Key {
     pub bucket: String,
     pub key: String,
 }
 
+#[allow(dead_code)]
 pub async fn get(s3: &Client, f: &Path, o: &Key) -> Result<()> {
     debug!(?o, ?f, "Getting object from S3");
 
@@ -54,6 +57,7 @@ pub async fn get(s3: &Client, f: &Path, o: &Key) -> Result<()> {
     Ok(())
 }
 
+#[allow(dead_code)]
 pub async fn put(s3: &Client, f: &Path, o: &Key) -> Result<()> {
     debug!(?o, ?f, "Putting object to S3");
 
@@ -85,6 +89,7 @@ pub async fn put(s3: &Client, f: &Path, o: &Key) -> Result<()> {
     Ok(())
 }
 
+#[allow(dead_code)]
 pub async fn del(s3: &Client, o: &Key) -> Result<()> {
     debug!(?o, "Deleting object from S3");
 

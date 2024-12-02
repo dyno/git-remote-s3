@@ -4,6 +4,7 @@ use std::path::Path;
 use std::process::Command;
 use tracing::{debug, error};
 
+#[allow(dead_code)]
 pub fn bundle_create(bundle: &Path, ref_name: &str) -> Result<()> {
     debug!(?bundle, ?ref_name, "Creating git bundle");
 
@@ -32,6 +33,7 @@ pub fn bundle_create(bundle: &Path, ref_name: &str) -> Result<()> {
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn bundle_unbundle(bundle: &Path, ref_name: &str) -> Result<()> {
     debug!(?bundle, ?ref_name, "Unbundling git bundle");
 
@@ -63,6 +65,7 @@ pub fn bundle_unbundle(bundle: &Path, ref_name: &str) -> Result<()> {
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn config(setting: &str) -> Result<String> {
     debug!(?setting, "Reading git config");
 
@@ -90,6 +93,7 @@ pub fn config(setting: &str) -> Result<String> {
     Ok(output)
 }
 
+#[allow(dead_code)]
 pub fn is_ancestor(base_ref: &str, remote_ref: &str) -> Result<bool> {
     debug!(?base_ref, ?remote_ref, "Checking git ancestry");
 
@@ -109,6 +113,7 @@ pub fn is_ancestor(base_ref: &str, remote_ref: &str) -> Result<bool> {
     Ok(result.status.success())
 }
 
+#[allow(dead_code)]
 pub fn rev_parse(rev: &str) -> Result<String> {
     debug!(?rev, "Resolving git revision");
 

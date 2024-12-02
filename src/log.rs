@@ -1,11 +1,9 @@
-use anyhow::Result;
 use std::fmt;
 use time::UtcOffset;
 use tracing::Subscriber;
 use tracing_subscriber::{
     fmt::{format::Writer, FmtContext, FormatEvent, FormatFields},
     registry::LookupSpan,
-    EnvFilter,
 };
 
 /// Custom event formatter that mimics Google Cloud (absl) logging format
