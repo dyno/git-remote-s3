@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, Result};
 use aws_config::{meta::region::RegionProviderChain, retry::RetryConfig, timeout::TimeoutConfig};
 use aws_sdk_s3::Client;
 use aws_types::region::Region;
@@ -79,7 +79,9 @@ async fn main() -> Result<()> {
         region: s3_settings.region,
     };
 
-    match cmd_loop(&s3, &settings).await {
+    let current_dir = std::env::current_dir()?;
+
+    match cmd_loop(&s3, &settings, &current_dir).await {
         Ok(_) => Ok(()),
         Err(e) => {
             error!(?e, "Command loop failed");
@@ -235,7 +237,7 @@ async fn cmd_list(s3: &Client, settings: &Settings) -> Result<()> {
     Ok(())
 }
 
-async fn cmd_loop(s3: &Client, settings: &Settings) -> Result<()> {
+async fn cmd_loop(s3: &Client, settings: &Settings, current_dir: &Path) -> Result<()> {
     loop {
         let mut input = String::new();
         io::stdin()
@@ -252,8 +254,12 @@ async fn cmd_loop(s3: &Client, settings: &Settings) -> Result<()> {
         let arg2 = iter.next();
 
         let result = match (cmd, arg1, arg2) {
-            (Some("push"), Some(ref_arg), None) => cmd_push(s3, settings, ref_arg).await,
-            (Some("fetch"), Some(sha), Some(name)) => cmd_fetch(s3, settings, sha, name).await,
+            (Some("push"), Some(ref_arg), None) => {
+                cmd_push(s3, settings, ref_arg, current_dir).await
+            }
+            (Some("fetch"), Some(sha), Some(name)) => {
+                cmd_fetch(s3, settings, sha, name, current_dir).await
+            }
             (Some("capabilities"), None, None) => cmd_capabilities(),
             (Some("list"), None, None) => cmd_list(s3, settings).await,
             (Some("list"), Some("for-push"), None) => cmd_list(s3, settings).await,
@@ -281,7 +287,12 @@ fn cmd_capabilities() -> Result<()> {
     Ok(())
 }
 
-async fn fetch_from_s3(s3: &Client, settings: &Settings, r: &GitRef) -> Result<()> {
+async fn fetch_from_s3(
+    s3: &Client,
+    settings: &Settings,
+    r: &GitRef,
+    current_dir: &Path,
+) -> Result<()> {
     info!(?r, "Fetching from S3");
 
     let tmp_dir = std::env::temp_dir();
@@ -304,26 +315,34 @@ async fn fetch_from_s3(s3: &Client, settings: &Settings, r: &GitRef) -> Result<(
     gpg::decrypt(&enc_file, &bundle_file)?;
 
     info!(?r.name, "Unbundling Git bundle");
-    git::bundle_unbundle(&bundle_file, &r.name)?;
+    git::bundle_unbundle(&bundle_file, &r.name, current_dir)?;
 
     Ok(())
 }
 
-async fn push_to_s3(s3: &Client, settings: &Settings, r: &GitRef) -> Result<()> {
+async fn push_to_s3(
+    s3: &Client,
+    settings: &Settings,
+    r: &GitRef,
+    current_dir: &Path,
+) -> Result<()> {
     let tmp_dir = std::env::temp_dir();
     let bundle_file = tmp_dir.join("bundle");
     let enc_file = tmp_dir.join("bundle_enc");
 
-    git::bundle_create(&bundle_file, &r.name)?;
+    git::bundle_create(&bundle_file, &r.name, current_dir)?;
 
-    let recipients = git::config(&format!("remote.{}.gpgRecipients", settings.remote_alias))
-        .map(|config| {
-            config
-                .split_ascii_whitespace()
-                .map(|s| s.to_string())
-                .collect()
-        })
-        .or_else(|_| git::config("user.email").map(|recip| vec![recip]))?;
+    let recipients = git::config(
+        &format!("remote.{}.gpgRecipients", settings.remote_alias),
+        current_dir,
+    )
+    .map(|config| {
+        config
+            .split_ascii_whitespace()
+            .map(|s| s.to_string())
+            .collect()
+    })
+    .or_else(|_| git::config("user.email", current_dir).map(|recip| vec![recip]))?;
 
     gpg::encrypt(&recipients, &bundle_file, &enc_file)?;
 
@@ -337,7 +356,13 @@ async fn push_to_s3(s3: &Client, settings: &Settings, r: &GitRef) -> Result<()> 
     Ok(())
 }
 
-async fn cmd_fetch(s3: &Client, settings: &Settings, sha: &str, name: &str) -> Result<()> {
+async fn cmd_fetch(
+    s3: &Client,
+    settings: &Settings,
+    sha: &str,
+    name: &str,
+    current_dir: &Path,
+) -> Result<()> {
     if name == "HEAD" {
         // Ignore head, as it's guaranteed to point to a ref we already downloaded
         return Ok(());
@@ -346,47 +371,48 @@ async fn cmd_fetch(s3: &Client, settings: &Settings, sha: &str, name: &str) -> R
         name: name.to_string(),
         sha: sha.to_string(),
     };
-    fetch_from_s3(s3, settings, &git_ref).await?;
+    fetch_from_s3(s3, settings, &git_ref, current_dir).await?;
     println!();
     Ok(())
 }
 
-async fn cmd_push(s3: &Client, settings: &Settings, push_ref: &str) -> Result<()> {
+async fn cmd_push(
+    s3: &Client,
+    settings: &Settings,
+    push_ref: &str,
+    current_dir: &Path,
+) -> Result<()> {
     let force = push_ref.starts_with('+');
 
     info!(?push_ref, force, "Pushing ref");
 
-    let mut split = push_ref.split(':');
+    // Parse src:dst refspec
+    let (src_ref, dst_ref) = match push_ref.trim_start_matches('+').split_once(':') {
+        Some((src, dst)) => (src, dst),
+        None => (
+            push_ref.trim_start_matches('+'),
+            push_ref.trim_start_matches('+'),
+        ),
+    };
 
-    let src_ref = split.next().unwrap();
-    let src_ref = if force { &src_ref[1..] } else { src_ref };
-    let dst_ref = split.next().unwrap();
-
-    if src_ref != dst_ref {
-        warn!(
-            ?src_ref,
-            ?dst_ref,
-            "Source and destination refs don't match"
-        );
-        bail!("src_ref != dst_ref")
-    }
-
+    // Get all remote refs
     let all_remote_refs = list_refs(s3, settings).await?;
     let remote_refs = all_remote_refs.get(src_ref);
     let prev_ref = remote_refs.map(|rs| rs.latest_ref());
-    let local_sha = git::rev_parse(src_ref)?;
+    let local_sha = git::rev_parse(src_ref, current_dir)?;
 
     debug!(?local_sha, "Resolved local SHA");
 
     let local_ref = GitRef {
-        name: src_ref.to_string(),
+        name: dst_ref.to_string(),
         sha: local_sha,
     };
 
+    // Check if we can push
     let can_push = force
         || match prev_ref {
             Some(prev_ref) => {
-                if !git::is_ancestor(&local_ref.sha, &prev_ref.reference.sha)? {
+                if !git::is_ancestor(&prev_ref.reference.sha, &local_ref.sha, current_dir)? {
                     warn!(?dst_ref, "Remote changed - force push required");
                     println!("error {} remote changed: force push to add new ref, the old ref will be kept until its merged)", dst_ref);
                     false
@@ -399,18 +425,62 @@ async fn cmd_push(s3: &Client, settings: &Settings, push_ref: &str) -> Result<()
 
     if can_push {
         info!(?local_ref, "Pushing to S3");
-        push_to_s3(s3, settings, &local_ref).await?;
+        push_to_s3(s3, settings, &local_ref, current_dir).await?;
 
         // Delete any ref that is an ancestor of the one we pushed
         for r in remote_refs.iter().flat_map(|r| r.by_update_time.iter()) {
-            if git::is_ancestor(&local_ref.sha, &r.reference.sha)? {
+            // Only delete refs with the same name
+            if r.reference.name != local_ref.name {
+                continue;
+            }
+            if git::is_ancestor(&r.reference.sha, &local_ref.sha, current_dir)? {
                 debug!(?r.object, "Deleting old ref");
                 s3::del(s3, &r.object).await?;
             }
         }
 
         println!("ok {}", dst_ref);
-    };
+    } else if force {
+        info!(?local_ref, "Force pushing to S3");
+        push_to_s3(s3, settings, &local_ref, current_dir).await?;
+
+        // On force push, we keep the old ref but rename it
+        for r in remote_refs.iter().flat_map(|r| r.by_update_time.iter()) {
+            // Only handle refs with the same name
+            if r.reference.name != local_ref.name {
+                continue;
+            }
+
+            // Don't touch refs that are ancestors
+            if git::is_ancestor(&r.reference.sha, &local_ref.sha, current_dir)? {
+                continue;
+            }
+
+            // Rename the ref to include its SHA
+            let new_ref = GitRef {
+                name: format!("{}_{}", r.reference.name, &r.reference.sha[..7]),
+                sha: r.reference.sha.clone(),
+            };
+            let new_obj = s3::Key {
+                bucket: settings.root.bucket.clone(),
+                key: format!("refs/{}", new_ref.name),
+            };
+            info!(?new_ref, "Renaming old ref");
+            s3::rename(
+                s3,
+                &s3::Key {
+                    bucket: settings.root.bucket.clone(),
+                    key: r.object.key.clone(),
+                },
+                &new_obj,
+            )
+            .await?;
+        }
+
+        println!("ok {}", dst_ref);
+    } else {
+        println!("error {} remote changed: force push to add new ref, the old ref will be kept until its merged)", dst_ref);
+    }
 
     println!();
     Ok(())

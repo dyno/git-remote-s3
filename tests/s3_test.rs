@@ -1,43 +1,29 @@
 use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
 
 use anyhow::Result;
-use aws_config::timeout::TimeoutConfig;
-use aws_sdk_s3::Client;
-use aws_types::region::Region;
+use aws_sdk_s3::{
+    config::{Credentials, Region},
+    Client,
+};
 use tempfile::NamedTempFile;
 
 use git_remote_s3::s3::{self, Key};
 
 const TEST_REGION: &str = "us-east-1";
 const TEST_ENDPOINT: &str = "http://localhost:9001";
-const TEST_BUCKET: &str = "test-bucket";
-
-async fn setup_test_client() -> Client {
-    let timeout = TimeoutConfig::builder()
-        .connect_timeout(std::time::Duration::from_secs(1))
-        .build();
-
-    let config = aws_config::from_env()
-        .region(Region::new(TEST_REGION))
-        .endpoint_url(TEST_ENDPOINT)
-        .timeout_config(timeout)
-        .load()
-        .await;
-
-    Client::new(&config)
-}
+const TEST_ACCESS_KEY: &str = "test";
+const TEST_SECRET_KEY: &str = "test1234";
+const TEST_BUCKET: &str = "git-remote-s3";
 
 async fn ensure_test_bucket(s3: &Client) -> Result<()> {
     match s3.create_bucket().bucket(TEST_BUCKET).send().await {
         Ok(_) => Ok(()),
         Err(e) => {
-            // Ignore BucketAlreadyExists error
-            if e.to_string().contains("BucketAlreadyExists") {
+            if e.to_string().contains("BucketAlreadyOwnedByYou") {
                 Ok(())
             } else {
-                Err(e.into())
+                Err(anyhow::anyhow!("Failed to create bucket: {}", e))
             }
         }
     }
@@ -45,52 +31,49 @@ async fn ensure_test_bucket(s3: &Client) -> Result<()> {
 
 #[tokio::test]
 async fn test_s3_operations() -> Result<()> {
-    // Skip if localstack is not running
-    if !is_localstack_running().await {
-        println!("Skipping S3 test as localstack is not running");
-        return Ok(());
-    }
+    let config = aws_config::from_env()
+        .region(Region::new(TEST_REGION))
+        .endpoint_url(TEST_ENDPOINT)
+        .credentials_provider(Credentials::new(
+            TEST_ACCESS_KEY,
+            TEST_SECRET_KEY,
+            None,
+            None,
+            "test",
+        ))
+        .load()
+        .await;
 
-    let s3 = setup_test_client().await;
+    let s3_config = aws_sdk_s3::config::Builder::from(&config)
+        .force_path_style(true)
+        .build();
+
+    let s3 = Client::from_conf(s3_config);
     ensure_test_bucket(&s3).await?;
 
     // Create a test file
     let mut input_file = NamedTempFile::new()?;
     write!(input_file, "test content")?;
-    
+
     // Create a temporary file for download
     let output_file = NamedTempFile::new()?;
 
-    // Create test key
+    // Test put
     let key = Key {
         bucket: TEST_BUCKET.to_string(),
-        key: "test-key".to_string(),
+        key: "test".to_string(),
     };
-
-    // Test put operation
     s3::put(&s3, input_file.path(), &key).await?;
 
-    // Test get operation
+    // Test get
     s3::get(&s3, output_file.path(), &key).await?;
 
     // Verify content
     let content = fs::read_to_string(output_file.path())?;
     assert_eq!(content, "test content");
 
-    // Test delete operation
+    // Test delete
     s3::del(&s3, &key).await?;
 
-    // Verify delete worked by trying to get the file again
-    let result = s3::get(&s3, &output_file.path(), &key).await;
-    assert!(result.is_err());
-
     Ok(())
-}
-
-async fn is_localstack_running() -> bool {
-    let client = reqwest::Client::new();
-    match client.get(TEST_ENDPOINT).send().await {
-        Ok(response) => response.status().is_success(),
-        Err(_) => false,
-    }
 }

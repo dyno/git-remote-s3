@@ -108,3 +108,21 @@ pub async fn del(s3: &Client, o: &Key) -> Result<()> {
     debug!("Successfully deleted object");
     Ok(())
 }
+
+pub async fn rename(client: &Client, from: &Key, to: &Key) -> Result<()> {
+    debug!(?from, ?to, "Renaming S3 object");
+
+    // Copy the object
+    client
+        .copy_object()
+        .copy_source(format!("{}/{}", from.bucket, from.key))
+        .bucket(to.bucket.clone())
+        .key(to.key.clone())
+        .send()
+        .await?;
+
+    // Delete the original
+    del(client, from).await?;
+
+    Ok(())
+}
