@@ -1,9 +1,9 @@
+use crate::common::log_command;
+use anyhow::{anyhow, bail, Result};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
-use anyhow::{Result, anyhow, bail};
 use tracing::{debug, error};
-use crate::common::log_command;
 
 pub fn encrypt(recipients: &[String], i: &Path, o: &Path) -> Result<()> {
     if recipients.is_empty() {
@@ -14,9 +14,7 @@ pub fn encrypt(recipients: &[String], i: &Path, o: &Path) -> Result<()> {
 
     debug!(?recipients, ?i, ?o, "Encrypting file with GPG");
     let mut cmd = Command::new("gpg");
-    cmd.arg("--batch")
-        .arg("--yes")
-        .arg("--encrypt");
+    cmd.arg("--batch").arg("--yes").arg("--encrypt");
 
     for r in recipients {
         cmd.arg("-r").arg(r);

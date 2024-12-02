@@ -1,57 +1,42 @@
-use anyhow::{Result, anyhow, bail};
+use anyhow::{anyhow, bail, Result};
+use aws_config::{meta::region::RegionProviderChain, retry::RetryConfig, timeout::TimeoutConfig};
 use aws_sdk_s3::Client;
-use aws_config::meta::region::RegionProviderChain;
-use aws_config::retry::RetryConfig;
-use aws_config::timeout::TimeoutConfig;
 use aws_types::region::Region;
-use std::collections::HashMap;
-use std::env;
-use std::io;
-use std::path::Path;
-use std::time::Duration;
-use tracing::{info, warn, error, debug};
-use tracing_subscriber::fmt;
-use std::fs::OpenOptions;
-use time::macros::format_description;
+use std::{
+    collections::HashMap,
+    env, io,
+    path::{Path, PathBuf},
+    time::Duration,
+};
+use tracing::{debug, error, info, warn};
+use tracing_subscriber::EnvFilter;
 
+mod common;
 mod git;
 mod gpg;
+mod log;
 mod s3;
-mod common;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialize file logging
-    let file = OpenOptions::new()
+    // Initialize logging to /tmp/git-remote-s3.log
+    let log_path = PathBuf::from("/tmp/git-remote-s3.log");
+    if let Some(parent) = log_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open("/tmp/git-remote-s3.log")
-        .map_err(|e| anyhow!("Failed to open log file: {}", e))?;
+        .open(&log_path)?;
 
-    fmt()
-        .with_env_filter(env::var("RUST_LOG").unwrap_or_else(|_| "git_remote_s3=info".to_string()))
-        .with_writer(file)
-        .with_ansi(false)
-        .with_file(true)
-        .with_line_number(true)
-        .with_thread_ids(true)
-        .with_target(false)  
-        .with_timer(fmt::time::UtcTime::new(format_description!("[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:3]")))
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("error,git_remote_s3=debug"));
+
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_writer(move || file.try_clone().unwrap())
+        .event_format(log::GoogleEventFormat)
         .init();
-
-    debug!("Logging initialized for git-remote-s3");
-
-    // Set up panic handler
-    std::panic::set_hook(Box::new(|panic_info| {
-        if let Some(location) = panic_info.location() {
-            if location.file().contains("stdio.rs") && panic_info.to_string().contains("Broken pipe") {
-                // Silently ignore broken pipe errors
-                return;
-            }
-        }
-        // Only show error for non-broken-pipe panics
-        eprintln!("Error: git-remote-s3 operation failed");
-    }));
 
     let mut args = env::args();
     args.next();
@@ -61,7 +46,9 @@ async fn main() -> Result<()> {
     info!(?alias, ?url, "Starting git-remote-s3");
 
     let url_path = url.trim_start_matches("s3://");
-    let slash_idx = url_path.find('/').ok_or_else(|| anyhow!("url must contain /"))?;
+    let slash_idx = url_path
+        .find('/')
+        .ok_or_else(|| anyhow!("url must contain /"))?;
     let bucket = &url_path[..slash_idx];
     let path = &url_path[(slash_idx + 1)..];
 
@@ -109,9 +96,11 @@ async fn get_s3_client(settings: &Settings) -> Result<Client> {
     let mut config_builder = aws_config::from_env()
         .region(region_provider)
         .retry_config(RetryConfig::standard().with_max_attempts(3))
-        .timeout_config(TimeoutConfig::builder()
-            .operation_timeout(Duration::from_secs(30))
-            .build());
+        .timeout_config(
+            TimeoutConfig::builder()
+                .operation_timeout(Duration::from_secs(30))
+                .build(),
+        );
 
     if let Some(endpoint) = &settings.endpoint {
         config_builder = config_builder.endpoint_url(endpoint);
@@ -161,7 +150,8 @@ async fn push(s3: &Client, enc_file: &Path, o: &s3::Key) -> Result<()> {
 }
 
 async fn list_refs(s3: &Client, settings: &Settings) -> Result<HashMap<String, RemoteRefs>> {
-    let result = s3.list_objects_v2()
+    let result = s3
+        .list_objects_v2()
         .bucket(&settings.root.bucket)
         .prefix(&settings.root.key)
         .send()
@@ -190,15 +180,23 @@ async fn list_refs(s3: &Client, settings: &Settings) -> Result<HashMap<String, R
                             bucket: settings.root.bucket.clone(),
                             key: key_str,
                         },
-                        updated: obj.last_modified()
+                        updated: obj
+                            .last_modified()
                             .map(|dt| dt.as_secs_f64().to_string())
                             .unwrap_or_default(),
-                        reference: GitRef { name: name.clone(), sha },
+                        reference: GitRef {
+                            name: name.clone(),
+                            sha,
+                        },
                     };
 
-                    refs_map.entry(name)
-                        .or_insert_with(|| RemoteRefs { by_update_time: Vec::new() })
-                        .by_update_time.push(remote_ref);
+                    refs_map
+                        .entry(name)
+                        .or_insert_with(|| RemoteRefs {
+                            by_update_time: Vec::new(),
+                        })
+                        .by_update_time
+                        .push(remote_ref);
                 }
             }
         }
@@ -206,7 +204,8 @@ async fn list_refs(s3: &Client, settings: &Settings) -> Result<HashMap<String, R
 
     // Sort refs by update time
     for refs in refs_map.values_mut() {
-        refs.by_update_time.sort_by(|a, b| b.updated.cmp(&a.updated));
+        refs.by_update_time
+            .sort_by(|a, b| b.updated.cmp(&a.updated));
     }
 
     Ok(refs_map)
@@ -284,11 +283,11 @@ fn cmd_capabilities() -> Result<()> {
 
 async fn fetch_from_s3(s3: &Client, settings: &Settings, r: &GitRef) -> Result<()> {
     info!(?r, "Fetching from S3");
-    
+
     let tmp_dir = std::env::temp_dir();
-        
+
     debug!(?tmp_dir, "Created temporary directory");
-    
+
     let bundle_file = tmp_dir.join("bundle");
     let enc_file = tmp_dir.join("bundle_enc");
 
@@ -297,7 +296,7 @@ async fn fetch_from_s3(s3: &Client, settings: &Settings, r: &GitRef) -> Result<(
         bucket: settings.root.bucket.to_owned(),
         key: path,
     };
-    
+
     debug!(?o, "Fetching bundle from S3");
     fetch(s3, &o, &enc_file).await?;
 
@@ -364,7 +363,11 @@ async fn cmd_push(s3: &Client, settings: &Settings, push_ref: &str) -> Result<()
     let dst_ref = split.next().unwrap();
 
     if src_ref != dst_ref {
-        warn!(?src_ref, ?dst_ref, "Source and destination refs don't match");
+        warn!(
+            ?src_ref,
+            ?dst_ref,
+            "Source and destination refs don't match"
+        );
         bail!("src_ref != dst_ref")
     }
 
