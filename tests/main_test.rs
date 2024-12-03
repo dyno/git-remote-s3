@@ -1,17 +1,19 @@
 use anyhow::Result;
 use assert_cmd::assert::OutputAssertExt;
 use assert_cmd::cargo::cargo_bin;
-use aws_sdk_s3::{
-    config::{Credentials, Region},
-    Client,
-};
+use aws_sdk_s3::{config::Region, Client};
 use git_remote_s3::s3;
+use std::env;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
 use tempfile::TempDir;
 use tokio;
 use tracing::{debug, info};
+
+const S3_ENDPOINT: &str = "http://localhost:9001";
+const S3_ACCESS_KEY: &str = "test";
+const S3_SECRET_KEY: &str = "test1234";
 
 mod common;
 use common::init_test_logging;
@@ -29,14 +31,14 @@ fn setup() -> Result<TempDir> {
 fn git(pwd: &Path, args: &str) -> Command {
     let bin_path = cargo_bin("git-remote-s3");
     let parent_path = bin_path.parent().unwrap().to_str().unwrap();
-    let new_path = format!("{}:{}", parent_path, std::env::var("PATH").unwrap());
+    let new_path = format!("{}:{}", parent_path, env::var("PATH").unwrap());
 
     let mut command = Command::new("git");
     command.current_dir(pwd);
     command.env("PATH", new_path);
-    command.env("S3_ENDPOINT", "http://localhost:9001");
-    command.env("AWS_ACCESS_KEY_ID", "test");
-    command.env("AWS_SECRET_ACCESS_KEY", "test1234");
+    command.env("S3_ENDPOINT", S3_ENDPOINT);
+    command.env("AWS_ACCESS_KEY_ID", S3_ACCESS_KEY);
+    command.env("AWS_SECRET_ACCESS_KEY", S3_SECRET_KEY);
     cmd_args(&mut command, args);
     command
 }
@@ -46,10 +48,12 @@ fn cmd_args(command: &mut Command, args: &str) {
 }
 
 async fn create_test_client() -> Result<Client> {
+    env::set_var("AWS_ACCESS_KEY_ID", S3_ACCESS_KEY);
+    env::set_var("AWS_SECRET_ACCESS_KEY", S3_SECRET_KEY);
+
     let config = aws_config::from_env()
         .region(Region::new("us-east-1"))
-        .endpoint_url("http://localhost:9001")
-        .credentials_provider(Credentials::new("test", "test1234", None, None, "test"))
+        .endpoint_url(S3_ENDPOINT)
         .load()
         .await;
 
@@ -79,16 +83,7 @@ async fn list_keys_in_bucket(client: &Client, bucket: &str) -> Result<Vec<String
 }
 
 async fn create_bucket(client: &Client, bucket: &str) -> Result<()> {
-    client
-        .create_bucket()
-        .bucket(bucket)
-        .create_bucket_configuration(
-            aws_sdk_s3::types::CreateBucketConfiguration::builder()
-                .location_constraint(aws_sdk_s3::types::BucketLocationConstraint::UsEast2)
-                .build(),
-        )
-        .send()
-        .await?;
+    client.create_bucket().bucket(bucket).send().await?;
     Ok(())
 }
 
@@ -169,6 +164,7 @@ async fn integration() -> Result<()> {
         .assert()
         .success();
     git(&repo2, "fetch origin").assert().success();
+    git(&repo2, "branch main origin/main").assert().success();
     git(&repo2, "checkout main").assert().success();
     git(&repo2, "log --oneline --decorate=short")
         .assert()
