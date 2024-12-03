@@ -49,13 +49,3 @@ jobs:
           asset_name: git-remote-s3-${{ matrix.target }}.tar.gz
           tag: ${{ github.ref }}
           overwrite: true
-
-  publish:
-    needs: release
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@master
-      - name: publish
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: cargo publish
