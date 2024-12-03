@@ -51,10 +51,10 @@ setup-gpg:
 	gpg -v --batch -r test@example.com -o gnupg/test.enc -e gnupg/test.txt
 
 test:
-	RUST_BACKTRACE=full cargo test
+	RUST_BACKTRACE=full cargo test -- --nocapture
 
 integration-test:
-	cargo test --test main_test
+	cargo test --test main_test -- --nocapture
 
 bootstrap-rustup:
 	curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh

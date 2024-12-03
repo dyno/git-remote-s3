@@ -70,6 +70,10 @@ where
         mut writer: Writer<'_>,
         event: &tracing::Event<'_>,
     ) -> fmt::Result {
+        // Format level in a consistent width
+        let level = event.metadata().level();
+        write!(writer, "{}", level.as_str().chars().next().unwrap())?;
+
         // Get local time with fallback to UTC
         let now = time::OffsetDateTime::now_local().unwrap_or_else(|_| {
             time::OffsetDateTime::now_utc().to_offset(UtcOffset::from_hms(0, 0, 0).unwrap())
@@ -86,10 +90,6 @@ where
             now.second(),
             now.millisecond()
         )?;
-
-        // Format level in a consistent width
-        let level = event.metadata().level();
-        write!(writer, "{:5} ", level.as_str())?;
 
         // Add module path without brackets
         if let Some(module_path) = event.metadata().module_path() {

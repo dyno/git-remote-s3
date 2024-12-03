@@ -3,8 +3,15 @@ use std::fs;
 use std::io::Write;
 use tempfile::NamedTempFile;
 
+mod common;
+use common::init_test_logging;
+
+use git_remote_s3::gpg;
+
 #[test]
 fn test_gpg_no_recipients() -> Result<()> {
+    init_test_logging();
+
     // Create a temporary input file with some content
     let mut input_file = NamedTempFile::new()?;
     write!(input_file, "test content")?;
@@ -13,7 +20,7 @@ fn test_gpg_no_recipients() -> Result<()> {
     let output_file = NamedTempFile::new()?;
 
     // Test encryption with no recipients (should just copy)
-    git_remote_s3::gpg::encrypt(&[], input_file.path(), output_file.path())?;
+    gpg::encrypt(&[], input_file.path(), output_file.path())?;
 
     // Verify content was copied correctly
     let content = fs::read_to_string(output_file.path())?;
@@ -24,6 +31,8 @@ fn test_gpg_no_recipients() -> Result<()> {
 
 #[test]
 fn test_gpg_with_recipients() -> Result<()> {
+    init_test_logging();
+
     // Create a temporary input file with some content
     let mut input_file = NamedTempFile::new()?;
     write!(input_file, "secret content")?;
@@ -36,10 +45,10 @@ fn test_gpg_with_recipients() -> Result<()> {
     let recipients = vec![get_test_gpg_key()?];
 
     // Encrypt the file
-    git_remote_s3::gpg::encrypt(&recipients, input_file.path(), encrypted_file.path())?;
+    gpg::encrypt(&recipients, input_file.path(), encrypted_file.path())?;
 
     // Decrypt the file
-    git_remote_s3::gpg::decrypt(encrypted_file.path(), decrypted_file.path())?;
+    gpg::decrypt(encrypted_file.path(), decrypted_file.path())?;
 
     // Verify decrypted content matches original
     let content = fs::read_to_string(decrypted_file.path())?;
@@ -50,6 +59,8 @@ fn test_gpg_with_recipients() -> Result<()> {
 
 #[test]
 fn test_gpg_missing_file() -> Result<()> {
+    init_test_logging();
+
     let nonexistent = tempfile::Builder::new()
         .prefix("nonexistent")
         .tempfile()?
@@ -59,7 +70,7 @@ fn test_gpg_missing_file() -> Result<()> {
     let output_file = NamedTempFile::new()?;
 
     // Attempt to decrypt a non-existent file
-    let result = git_remote_s3::gpg::decrypt(&nonexistent, output_file.path());
+    let result = gpg::decrypt(&nonexistent, output_file.path());
     assert!(result.is_err());
 
     Ok(())

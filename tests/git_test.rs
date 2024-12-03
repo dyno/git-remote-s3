@@ -1,8 +1,11 @@
+use anyhow::Result;
 use std::fs;
 use std::process::Command;
-
-use anyhow::Result;
 use tempfile::TempDir;
+use tracing::info;
+
+mod common;
+use common::init_test_logging;
 
 use git_remote_s3::git;
 
@@ -67,6 +70,7 @@ fn create_commit(dir: &TempDir) -> Result<()> {
 
 #[test]
 fn test_git_rev_parse() -> Result<()> {
+    init_test_logging();
     let dir = TempDir::new()?;
     init_git_repo(&dir)?;
     create_commit(&dir)?;
@@ -80,6 +84,7 @@ fn test_git_rev_parse() -> Result<()> {
 
 #[test]
 fn test_git_config() -> Result<()> {
+    init_test_logging();
     let dir = TempDir::new()?;
     init_git_repo(&dir)?;
 
@@ -105,13 +110,14 @@ fn test_git_config() -> Result<()> {
 
 #[test]
 fn test_git_is_ancestor() -> Result<()> {
+    init_test_logging();
     let dir = TempDir::new()?;
     init_git_repo(&dir)?;
 
     // Create first commit
     create_commit(&dir)?;
     let first_commit = git::rev_parse("HEAD", dir.path())?;
-    println!("First commit: {}", first_commit);
+    info!(commit = %first_commit, "First commit");
 
     // Create second commit
     let test_file = dir.path().join("test2.txt");
@@ -135,21 +141,21 @@ fn test_git_is_ancestor() -> Result<()> {
 
     // Get second commit hash
     let second_commit = git::rev_parse("HEAD", dir.path())?;
-    println!("Second commit: {}", second_commit);
+    info!(commit = %second_commit, "Second commit");
 
     // Print git log
     let log = Command::new("git")
         .args(["log", "--oneline"])
         .current_dir(dir.path())
         .output()?;
-    println!("Git log:\n{}", String::from_utf8_lossy(&log.stdout));
+    info!(log = %String::from_utf8_lossy(&log.stdout), "Git log");
 
     // Test ancestry
     let result = git::is_ancestor(&first_commit, &second_commit, dir.path())?;
-    println!("Is first_commit ancestor of second_commit? {}", result);
+    info!(first = %first_commit, second = %second_commit, result = %result, "Ancestor check");
 
     let result2 = git::is_ancestor(&second_commit, &first_commit, dir.path())?;
-    println!("Is second_commit ancestor of first_commit? {}", result2);
+    info!(first = %second_commit, second = %first_commit, result = %result2, "Ancestor check");
 
     assert!(git::is_ancestor(&first_commit, &second_commit, dir.path())?);
     assert!(!git::is_ancestor(
@@ -163,6 +169,7 @@ fn test_git_is_ancestor() -> Result<()> {
 
 #[test]
 fn test_git_bundle() -> Result<()> {
+    init_test_logging();
     // Create source repository
     let source_dir = TempDir::new()?;
     init_git_repo(&source_dir)?;
@@ -177,9 +184,9 @@ fn test_git_bundle() -> Result<()> {
         .args(["bundle", "verify", bundle_file.to_str().unwrap()])
         .current_dir(&source_dir)
         .output()?;
-    println!(
-        "Bundle verify output: {:?}",
-        String::from_utf8_lossy(&verify.stderr)
+    info!(
+        output = %String::from_utf8_lossy(&verify.stderr),
+        "Bundle verify output"
     );
 
     // Create target repository and unbundle
@@ -200,16 +207,16 @@ fn test_git_bundle() -> Result<()> {
         .args(["fetch", "origin"])
         .current_dir(target_dir.path())
         .output()?;
-    println!("Fetch output: {:?}", String::from_utf8_lossy(&fetch.stderr));
+    info!(output = %String::from_utf8_lossy(&fetch.stderr), "Fetch output");
 
     // Checkout the fetched commit
     let checkout = Command::new("git")
         .args(["checkout", "FETCH_HEAD"])
         .current_dir(target_dir.path())
         .output()?;
-    println!(
-        "Checkout output: {:?}",
-        String::from_utf8_lossy(&checkout.stderr)
+    info!(
+        output = %String::from_utf8_lossy(&checkout.stderr),
+        "Checkout output"
     );
 
     // Verify commit exists in target
@@ -217,7 +224,7 @@ fn test_git_bundle() -> Result<()> {
         .args(["log", "--oneline", "HEAD"])
         .current_dir(target_dir.path())
         .output()?;
-    println!("Log output: {:?}", String::from_utf8_lossy(&result.stdout));
+    info!(output = %String::from_utf8_lossy(&result.stdout), "Log output");
 
     assert!(String::from_utf8_lossy(&result.stdout).contains("test commit"));
 

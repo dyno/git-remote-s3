@@ -1,6 +1,6 @@
 [package]
 name = "git-remote-s3"
-version = "0.2.1"
+version = "0.2.2"
 authors = ["Dyno Fu <dyno.fu@gmail.com>"]
 description = "Git remote helper for S3"
 repository = "https://github.com/dyno/git-remote-s3"
@@ -18,8 +18,6 @@ path = "src/main.rs"
 name = "git_remote_s3"
 path = "src/lib.rs"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 anyhow = "1.0"
 aws-config = "0.56"
@@ -34,4 +32,3 @@ time = { version = "0.3", features = ["macros", "formatting", "local-offset"] }
 assert_cmd = "0.11"
 tokio = { version = "1.32", features = ["full", "test-util"] }
 tempfile = "3.8"
-reqwest = { version = "0.11", features = ["json"] }

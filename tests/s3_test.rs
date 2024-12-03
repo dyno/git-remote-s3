@@ -1,12 +1,14 @@
-use std::fs;
-use std::io::Write;
-
 use anyhow::Result;
 use aws_sdk_s3::{
     config::{Credentials, Region},
     Client,
 };
+use std::fs;
+use std::io::Write;
 use tempfile::NamedTempFile;
+
+mod common;
+use common::init_test_logging;
 
 use git_remote_s3::s3::{self, Key};
 
@@ -31,6 +33,7 @@ async fn ensure_test_bucket(s3: &Client) -> Result<()> {
 
 #[tokio::test]
 async fn test_s3_operations() -> Result<()> {
+    init_test_logging();
     let config = aws_config::from_env()
         .region(Region::new(TEST_REGION))
         .endpoint_url(TEST_ENDPOINT)

@@ -1,57 +1,42 @@
 use anyhow::Result;
+use assert_cmd::assert::OutputAssertExt;
 use assert_cmd::cargo::cargo_bin;
-use assert_cmd::prelude::*;
-use aws_config;
 use aws_sdk_s3::{
     config::{Credentials, Region},
     Client,
 };
-use git_remote_s3::{log::GoogleEventFormat, s3};
+use git_remote_s3::s3;
+use std::fs;
+use std::path::Path;
 use std::process::Command;
-use std::{env, fs, path::Path, path::PathBuf, sync::Once};
-use tempfile::Builder;
+use tempfile::TempDir;
 use tokio;
 use tracing::{debug, info};
-use tracing_subscriber::EnvFilter;
 
-const TEST_REGION: &str = "us-east-1";
-const TEST_ENDPOINT: &str = "http://localhost:9001";
-const TEST_ACCESS_KEY: &str = "test";
-const TEST_SECRET_KEY: &str = "test1234";
+mod common;
+use common::init_test_logging;
 
-static INIT_LOGGER: Once = Once::new();
-
-fn setup() -> PathBuf {
-    INIT_LOGGER.call_once(|| {
-        let filter = EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new("error,git_remote_s3=debug,main_test=debug"));
-
-        tracing_subscriber::fmt()
-            .with_env_filter(filter)
-            .event_format(GoogleEventFormat)
-            .init();
-
-        debug!("Logging initialized for main_test");
-    });
+fn setup() -> Result<TempDir> {
+    init_test_logging();
 
     // Create a temporary directory for testing
     debug!("Setting up test environment");
-    let test_dir = Builder::new().prefix("git_s3_test").tempdir().unwrap();
+    let test_dir = TempDir::new().unwrap();
     debug!("Created test directory: {:?}", test_dir.path());
-    test_dir.into_path()
+    Ok(test_dir)
 }
 
 fn git(pwd: &Path, args: &str) -> Command {
     let bin_path = cargo_bin("git-remote-s3");
     let parent_path = bin_path.parent().unwrap().to_str().unwrap();
-    let new_path = format!("{}:{}", parent_path, env::var("PATH").unwrap());
+    let new_path = format!("{}:{}", parent_path, std::env::var("PATH").unwrap());
 
     let mut command = Command::new("git");
     command.current_dir(pwd);
     command.env("PATH", new_path);
-    command.env("S3_ENDPOINT", TEST_ENDPOINT);
-    command.env("AWS_ACCESS_KEY_ID", TEST_ACCESS_KEY);
-    command.env("AWS_SECRET_ACCESS_KEY", TEST_SECRET_KEY);
+    command.env("S3_ENDPOINT", "http://localhost:9001");
+    command.env("AWS_ACCESS_KEY_ID", "test");
+    command.env("AWS_SECRET_ACCESS_KEY", "test1234");
     cmd_args(&mut command, args);
     command
 }
@@ -62,15 +47,9 @@ fn cmd_args(command: &mut Command, args: &str) {
 
 async fn create_test_client() -> Result<Client> {
     let config = aws_config::from_env()
-        .region(Region::new(TEST_REGION))
-        .endpoint_url(TEST_ENDPOINT)
-        .credentials_provider(Credentials::new(
-            TEST_ACCESS_KEY,
-            TEST_SECRET_KEY,
-            None,
-            None,
-            "test",
-        ))
+        .region(Region::new("us-east-1"))
+        .endpoint_url("http://localhost:9001")
+        .credentials_provider(Credentials::new("test", "test1234", None, None, "test"))
         .load()
         .await;
 
@@ -149,11 +128,11 @@ async fn integration() -> Result<()> {
     create_bucket(&client, bucket).await?;
     debug!("Created test bucket: {}", bucket);
 
-    let test_dir = setup();
+    let test_dir = setup()?;
     info!("Starting integration test");
 
-    let repo1 = test_dir.join("repo1");
-    let repo2 = test_dir.join("repo2");
+    let repo1 = test_dir.path().join("repo1");
+    let repo2 = test_dir.path().join("repo2");
 
     fs::create_dir(&repo1).unwrap();
     fs::create_dir(&repo2).unwrap();
