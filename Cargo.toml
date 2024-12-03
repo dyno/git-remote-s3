@@ -1,6 +1,6 @@
 [package]
 name = "git-remote-s3"
-version = "0.2.2"
+version = "0.2.3"
 authors = ["Dyno Fu <dyno.fu@gmail.com>"]
 description = "Git remote helper for S3"
 repository = "https://github.com/dyno/git-remote-s3"

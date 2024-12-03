@@ -8,8 +8,9 @@ pub static INIT_LOGGER: Once = Once::new();
 /// Initialize logging for tests with consistent configuration
 pub fn init_test_logging() {
     INIT_LOGGER.call_once(|| {
-        let filter = EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new("error,git_remote_s3=debug,main_test=debug,tests=debug"));
+        let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+            EnvFilter::new("error,git_remote_s3=debug,main_test=debug,tests=debug")
+        });
 
         tracing_subscriber::fmt()
             .with_env_filter(filter)
