@@ -93,30 +93,6 @@ async fn main() -> Result<()> {
     }
 }
 
-async fn cmd_list(s3: &Client, settings: &Settings) -> Result<()> {
-    let refs = list_refs(s3, settings).await?;
-    if !refs.is_empty() {
-        for (_, refs) in refs.iter() {
-            let latest = refs.latest_ref();
-            println!("{} {}", latest.reference.sha, latest.reference.name);
-
-            for stale_ref in refs.by_update_time.iter().skip(1) {
-                let short_sha = &stale_ref.reference.sha[..7];
-                println!(
-                    "{} {}__{}",
-                    stale_ref.reference.sha, stale_ref.reference.name, short_sha
-                );
-            }
-        }
-
-        if refs.contains_key("refs/heads/master") {
-            println!("@refs/heads/master HEAD");
-        }
-    }
-    println!();
-    Ok(())
-}
-
 async fn cmd_loop(s3: &Client, settings: &Settings, current_dir: &Path) -> Result<()> {
     loop {
         let mut input = String::new();
@@ -160,12 +136,85 @@ fn cmd_unknown() -> Result<()> {
     Ok(())
 }
 
+/// capabilities
+/// Lists the capabilities of the helper, one per line, ending with a blank line.
+/// Each capability may be preceded with *, which marks them mandatory for Git
+/// versions using the remote helper to understand. Any unknown mandatory capability
+/// is a fatal error.
+///
+/// Support for this command is mandatory.
+
 fn cmd_capabilities() -> Result<()> {
     println!("*push");
     println!("*fetch");
     println!();
     Ok(())
 }
+
+/// list
+/// Lists the refs, one per line, in the format "<value> <name> [<attr> …​]". The
+/// value may be a hex sha1 hash, "@<dest>" for a symref, ":<keyword> <value>" for a
+/// key-value pair, or "?" to indicate that the helper could not get the value of
+/// the ref. A space-separated list of attributes follows the name; unrecognized
+/// attributes are ignored. The list ends with a blank line.
+///
+/// See REF LIST ATTRIBUTES for a list of currently defined attributes. See REF LIST
+/// KEYWORDS for a list of currently defined keywords.
+///
+/// Supported if the helper has the "fetch" or "import" capability.
+///
+/// list for-push
+/// Similar to list, except that it is used if and only if the caller wants to the
+/// resulting ref list to prepare push commands. A helper supporting both push and
+/// fetch can use this to distinguish for which operation the output of list is
+/// going to be used, possibly reducing the amount of work that needs to be
+/// performed.
+///
+/// Supported if the helper has the "push" or "export" capability.
+
+async fn cmd_list(s3: &Client, settings: &Settings) -> Result<()> {
+    let refs = list_refs(s3, settings).await?;
+    if !refs.is_empty() {
+        for (_, refs) in refs.iter() {
+            let latest = refs.latest_ref();
+            println!("{} {}", latest.reference.sha, latest.reference.name);
+
+            for stale_ref in refs.by_update_time.iter().skip(1) {
+                let short_sha = &stale_ref.reference.sha[..7];
+                println!(
+                    "{} {}__{}",
+                    stale_ref.reference.sha, stale_ref.reference.name, short_sha
+                );
+            }
+        }
+
+        if refs.contains_key("refs/heads/master") {
+            println!("@refs/heads/master HEAD");
+        }
+    }
+    println!();
+    Ok(())
+}
+
+/// fetch <sha1> <name>
+/// Fetches the given object, writing the necessary objects to the database. Fetch
+/// commands are sent in a batch, one per line, terminated with a blank line.
+/// Outputs a single blank line when all fetch commands in the same batch are
+/// complete. Only objects which were reported in the output of list with a sha1 may
+/// be fetched this way.
+///
+/// Optionally may output a lock <file> line indicating the full path of a file
+/// under $GIT_DIR/objects/pack which is keeping a pack until refs can be suitably
+/// updated. The path must end with .keep. This is a mechanism to name a
+/// <pack,idx,keep> tuple by giving only the keep component. The kept pack will not
+/// be deleted by a concurrent repack, even though its objects may not be referenced
+/// until the fetch completes. The .keep file will be deleted at the conclusion of
+/// the fetch.
+///
+/// If option check-connectivity is requested, the helper must output
+/// connectivity-ok if the clone is self-contained and connected.
+///
+/// Supported if the helper has the "fetch" capability.
 
 async fn cmd_fetch(
     s3: &Client,
@@ -186,6 +235,30 @@ async fn cmd_fetch(
     println!();
     Ok(())
 }
+
+/// push +<src>:<dst>
+/// Pushes the given local <src> commit or branch to the remote branch described by
+/// <dst>. A batch sequence of one or more push commands is terminated with a blank
+/// line (if there is only one reference to push, a single push command is followed
+/// by a blank line). For example, the following would be two batches of push, the
+/// first asking the remote-helper to push the local ref master to the remote ref
+/// master and the local HEAD to the remote branch, and the second asking to push
+/// ref foo to ref bar (forced update requested by the +).
+///
+/// push refs/heads/master:refs/heads/master
+/// push HEAD:refs/heads/branch
+/// \n
+/// push +refs/heads/foo:refs/heads/bar
+/// \n
+/// Zero or more protocol options may be entered after the last push command, before
+/// the batch’s terminating blank line.
+///
+/// When the push is complete, outputs one or more ok <dst> or error <dst> <why>?
+/// lines to indicate success or failure of each pushed ref. The status report
+/// output is terminated by a blank line. The option field <why> may be quoted in a
+/// C style string if it contains an LF.
+///
+/// Supported if the helper has the "push" capability.
 
 async fn cmd_push(
     s3: &Client,
