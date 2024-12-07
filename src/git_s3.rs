@@ -194,12 +194,7 @@ pub async fn list_refs(
 }
 
 // Git bundle operations
-pub async fn fetch_from_s3(
-    s3: &Client,
-    settings: &GitS3Settings,
-    r: &GitRef,
-    current_dir: &Path,
-) -> Result<()> {
+pub async fn fetch_from_s3(s3: &Client, settings: &GitS3Settings, r: &GitRef) -> Result<()> {
     info!(?r, "Fetching from S3");
 
     let tmp_dir = std::env::temp_dir();
@@ -221,34 +216,26 @@ pub async fn fetch_from_s3(
     gpg::decrypt(&enc_file, &bundle_file)?;
 
     info!(?r.name, "Unbundling Git bundle");
-    git::bundle_unbundle(&bundle_file, &r.name, current_dir)?;
+    git::bundle_unbundle(&bundle_file, &r.name)?;
 
     Ok(())
 }
 
-pub async fn push_to_s3(
-    s3: &Client,
-    settings: &GitS3Settings,
-    r: &GitRef,
-    current_dir: &Path,
-) -> Result<()> {
+pub async fn push_to_s3(s3: &Client, settings: &GitS3Settings, r: &GitRef) -> Result<()> {
     let tmp_dir = std::env::temp_dir();
     let bundle_file = tmp_dir.join("bundle");
     let enc_file = tmp_dir.join("bundle_enc");
 
-    git::bundle_create(&bundle_file, &r.name, current_dir)?;
+    git::bundle_create(&bundle_file, &r.name)?;
 
-    let recipients = git::config(
-        &format!("remote.{}.gpgRecipients", settings.remote_alias),
-        current_dir,
-    )
-    .map(|config| {
-        config
-            .split_ascii_whitespace()
-            .map(|s| s.to_string())
-            .collect()
-    })
-    .or_else(|_| git::config("user.email", current_dir).map(|recip| vec![recip]))?;
+    let recipients = git::config(&format!("remote.{}.gpgRecipients", settings.remote_alias))
+        .map(|config| {
+            config
+                .split_ascii_whitespace()
+                .map(|s| s.to_string())
+                .collect()
+        })
+        .or_else(|_| git::config("user.email").map(|recip| vec![recip]))?;
 
     gpg::encrypt(&recipients, &bundle_file, &enc_file)?;
 

@@ -1,9 +1,6 @@
 use anyhow::{anyhow, Result};
 use aws_sdk_s3::Client;
-use std::{
-    env, io,
-    path::{Path, PathBuf},
-};
+use std::{env, io, path::PathBuf};
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
@@ -54,9 +51,7 @@ async fn main() -> Result<()> {
     .await?;
     info!("S3 client initialized");
 
-    let current_dir = std::env::current_dir()?;
-
-    match cmd_loop(&s3, &settings, &current_dir).await {
+    match cmd_loop(&s3, &settings).await {
         Ok(_) => Ok(()),
         Err(e) => {
             error!(?e, "Command loop failed");
@@ -65,7 +60,7 @@ async fn main() -> Result<()> {
     }
 }
 
-async fn cmd_loop(s3: &Client, settings: &GitS3Settings, current_dir: &Path) -> Result<()> {
+async fn cmd_loop(s3: &Client, settings: &GitS3Settings) -> Result<()> {
     loop {
         let mut input = String::new();
         io::stdin().read_line(&mut input)?;
@@ -76,12 +71,8 @@ async fn cmd_loop(s3: &Client, settings: &GitS3Settings, current_dir: &Path) -> 
         let arg2 = iter.next();
 
         let result = match (cmd, arg1, arg2) {
-            (Some("push"), Some(ref_arg), None) => {
-                cmd_push(s3, settings, ref_arg, current_dir).await
-            }
-            (Some("fetch"), Some(sha), Some(name)) => {
-                cmd_fetch(s3, settings, sha, name, current_dir).await
-            }
+            (Some("push"), Some(ref_arg), None) => cmd_push(s3, settings, ref_arg).await,
+            (Some("fetch"), Some(sha), Some(name)) => cmd_fetch(s3, settings, sha, name).await,
             (Some("capabilities"), None, None) => cmd_capabilities(),
             (Some("list"), None, None) => cmd_list(s3, settings).await,
             (Some("list"), Some("for-push"), None) => cmd_list(s3, settings).await,
@@ -184,13 +175,7 @@ async fn cmd_list(s3: &Client, settings: &GitS3Settings) -> Result<()> {
 ///
 /// Supported if the helper has the "fetch" capability.
 
-async fn cmd_fetch(
-    s3: &Client,
-    settings: &GitS3Settings,
-    sha: &str,
-    name: &str,
-    current_dir: &Path,
-) -> Result<()> {
+async fn cmd_fetch(s3: &Client, settings: &GitS3Settings, sha: &str, name: &str) -> Result<()> {
     if name == "HEAD" {
         // Ignore head, as it's guaranteed to point to a ref we already downloaded
         return Ok(());
@@ -199,7 +184,7 @@ async fn cmd_fetch(
         name: name.to_string(),
         sha: sha.to_string(),
     };
-    fetch_from_s3(s3, settings, &git_ref, current_dir).await?;
+    fetch_from_s3(s3, settings, &git_ref).await?;
     println!();
     Ok(())
 }
@@ -228,12 +213,7 @@ async fn cmd_fetch(
 ///
 /// Supported if the helper has the "push" capability.
 
-async fn cmd_push(
-    s3: &Client,
-    settings: &GitS3Settings,
-    push_ref: &str,
-    current_dir: &Path,
-) -> Result<()> {
+async fn cmd_push(s3: &Client, settings: &GitS3Settings, push_ref: &str) -> Result<()> {
     let force = push_ref.starts_with('+');
     let (src, dst) = match push_ref.trim_start_matches('+').split_once(':') {
         Some((src, dst)) => (src, dst),
@@ -245,7 +225,7 @@ async fn cmd_push(
 
     let local_ref = GitRef {
         name: dst.to_string(),
-        sha: git::rev_parse(src, current_dir)?,
+        sha: git::rev_parse(src)?,
     };
 
     let refs = list_refs(s3, settings).await?;
@@ -253,7 +233,7 @@ async fn cmd_push(
         if let Some(prev_refs) = refs.get(&local_ref.name) {
             let prev_ref = prev_refs.latest_ref();
             if !prev_ref.reference.sha.is_empty() {
-                if !git::is_ancestor(&prev_ref.reference.sha, &local_ref.sha, current_dir)? {
+                if !git::is_ancestor(&prev_ref.reference.sha, &local_ref.sha)? {
                     warn!(?dst, "Remote changed - force push required");
                     println!("error {} remote changed: force push required", dst);
                     return Ok(());
@@ -262,7 +242,7 @@ async fn cmd_push(
         }
     }
 
-    push_to_s3(s3, settings, &local_ref, current_dir).await?;
+    push_to_s3(s3, settings, &local_ref).await?;
     println!("ok {}", dst);
     println!();
     Ok(())

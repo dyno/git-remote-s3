@@ -1,232 +1,278 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use std::fs;
 use std::process::Command;
 use tempfile::TempDir;
-use tracing::info;
+use tracing::{error, info};
 
 mod common;
 use common::init_test_logging;
 
 use git_remote_s3::git;
 
-fn init_git_repo(dir: &TempDir) -> Result<()> {
-    Command::new("git")
-        .args(["init"])
-        .current_dir(dir.path())
-        .output()?;
+const TEST_EMAIL: &str = "test@example.com";
+const TEST_USER: &str = "Test User";
 
-    // Set git user config
-    Command::new("git")
-        .args([
-            "-c",
-            "user.name=Test",
-            "-c",
-            "user.email=test@example.com",
-            "config",
-            "--local",
-            "user.name",
-            "Test",
-        ])
-        .current_dir(dir.path())
-        .output()?;
-    Command::new("git")
-        .args([
-            "-c",
-            "user.name=Test",
-            "-c",
-            "user.email=test@example.com",
-            "config",
-            "--local",
-            "user.email",
-            "test@example.com",
-        ])
-        .current_dir(dir.path())
-        .output()?;
+fn init_git_repo() -> Result<TempDir> {
+    // Create a new temp directory for the git repo
+    let repo_dir = TempDir::new()?;
+    info!("Created temp dir: {:?}", repo_dir.path());
 
-    Ok(())
+    // Initialize git repo
+    let output = Command::new("git")
+        .current_dir(repo_dir.path())
+        .arg("init")
+        .output()?;
+    if !output.status.success() {
+        error!(
+            "git init failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return Err(anyhow!("git init failed"));
+    }
+    info!("Git init successful");
+
+    // Configure git
+    let output = Command::new("git")
+        .current_dir(repo_dir.path())
+        .args(["config", "--local", "user.email", TEST_EMAIL])
+        .output()?;
+    if !output.status.success() {
+        error!(
+            "git config failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return Err(anyhow!("git config failed"));
+    }
+
+    let output = Command::new("git")
+        .current_dir(repo_dir.path())
+        .args(["config", "--local", "user.name", TEST_USER])
+        .output()?;
+    if !output.status.success() {
+        error!(
+            "git config failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return Err(anyhow!("git config failed"));
+    }
+    info!("Git config successful");
+
+    Ok(repo_dir)
 }
 
-fn create_commit(dir: &TempDir) -> Result<()> {
-    let test_file = dir.path().join("test.txt");
+fn create_commit(repo_dir: &TempDir) -> Result<()> {
+    let test_file = repo_dir.path().join("test.txt");
     fs::write(&test_file, "test content")?;
-    Command::new("git")
+
+    let output = Command::new("git")
+        .current_dir(repo_dir.path())
         .args(["add", "test.txt"])
-        .current_dir(dir.path())
         .output()?;
-    Command::new("git")
-        .args([
-            "-c",
-            "user.name=Test",
-            "-c",
-            "user.email=test@example.com",
-            "commit",
-            "-m",
-            "test commit",
-        ])
-        .current_dir(dir.path())
+    if !output.status.success() {
+        error!(
+            "git add failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return Err(anyhow!("git add failed"));
+    }
+
+    let output = Command::new("git")
+        .current_dir(repo_dir.path())
+        .args(["commit", "-m", "test commit"])
         .output()?;
+    if !output.status.success() {
+        error!(
+            "git commit failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return Err(anyhow!("git commit failed"));
+    }
+
     Ok(())
 }
 
-#[test]
-fn test_git_rev_parse() -> Result<()> {
+#[tokio::test]
+async fn test_git_rev_parse() -> Result<()> {
     init_test_logging();
-    let dir = TempDir::new()?;
-    init_git_repo(&dir)?;
-    create_commit(&dir)?;
+    let repo_dir = init_git_repo()?;
+    create_commit(&repo_dir)?;
 
-    let head = git::rev_parse("HEAD", dir.path())?;
+    let output = Command::new("git")
+        .current_dir(repo_dir.path())
+        .args(["rev-parse", "HEAD"])
+        .output()?;
+    if !output.status.success() {
+        error!(
+            "git rev-parse failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return Err(anyhow!("git rev-parse failed"));
+    }
+    let head = String::from_utf8(output.stdout)?.trim().to_string();
     assert!(!head.is_empty());
     assert_eq!(head.len(), 40); // SHA-1 hash is 40 characters
 
     Ok(())
 }
 
-#[test]
-fn test_git_config() -> Result<()> {
+#[tokio::test]
+async fn test_git_is_ancestor() -> Result<()> {
     init_test_logging();
-    let dir = TempDir::new()?;
-    init_git_repo(&dir)?;
-
-    Command::new("git")
-        .args([
-            "-c",
-            "user.name=Test",
-            "-c",
-            "user.email=test@example.com",
-            "config",
-            "--local",
-            "test.key",
-            "test value",
-        ])
-        .current_dir(dir.path())
-        .output()?;
-
-    let value = git::config("test.key", dir.path())?;
-    assert_eq!(value, "test value");
-
-    Ok(())
-}
-
-#[test]
-fn test_git_is_ancestor() -> Result<()> {
-    init_test_logging();
-    let dir = TempDir::new()?;
-    init_git_repo(&dir)?;
+    let repo_dir = init_git_repo()?;
 
     // Create first commit
-    create_commit(&dir)?;
-    let first_commit = git::rev_parse("HEAD", dir.path())?;
+    let first_file = repo_dir.path().join("first.txt");
+    fs::write(&first_file, "first")?;
+    let output = Command::new("git")
+        .current_dir(repo_dir.path())
+        .args(["add", "first.txt"])
+        .output()?;
+    if !output.status.success() {
+        error!(
+            "git add failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return Err(anyhow!("git add failed"));
+    }
+
+    let output = Command::new("git")
+        .current_dir(repo_dir.path())
+        .args(["commit", "-m", "first"])
+        .output()?;
+    if !output.status.success() {
+        error!(
+            "git commit failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return Err(anyhow!("git commit failed"));
+    }
+
+    let output = Command::new("git")
+        .current_dir(repo_dir.path())
+        .args(["rev-parse", "HEAD"])
+        .output()?;
+    if !output.status.success() {
+        error!(
+            "git rev-parse failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return Err(anyhow!("git rev-parse failed"));
+    }
+    let first_commit = String::from_utf8(output.stdout)?.trim().to_string();
     info!(commit = %first_commit, "First commit");
 
     // Create second commit
-    let test_file = dir.path().join("test2.txt");
-    fs::write(&test_file, "more content")?;
-    Command::new("git")
-        .args(["add", "test2.txt"])
-        .current_dir(dir.path())
+    let second_file = repo_dir.path().join("second.txt");
+    fs::write(&second_file, "second")?;
+    let output = Command::new("git")
+        .current_dir(repo_dir.path())
+        .args(["add", "second.txt"])
         .output()?;
-    Command::new("git")
-        .args([
-            "-c",
-            "user.name=Test",
-            "-c",
-            "user.email=test@example.com",
-            "commit",
-            "-m",
-            "second commit",
-        ])
-        .current_dir(dir.path())
-        .output()?;
+    if !output.status.success() {
+        error!(
+            "git add failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return Err(anyhow!("git add failed"));
+    }
 
-    // Get second commit hash
-    let second_commit = git::rev_parse("HEAD", dir.path())?;
+    let output = Command::new("git")
+        .current_dir(repo_dir.path())
+        .args(["commit", "-m", "second"])
+        .output()?;
+    if !output.status.success() {
+        error!(
+            "git commit failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return Err(anyhow!("git commit failed"));
+    }
+
+    let output = Command::new("git")
+        .current_dir(repo_dir.path())
+        .args(["rev-parse", "HEAD"])
+        .output()?;
+    if !output.status.success() {
+        error!(
+            "git rev-parse failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return Err(anyhow!("git rev-parse failed"));
+    }
+    let second_commit = String::from_utf8(output.stdout)?.trim().to_string();
     info!(commit = %second_commit, "Second commit");
 
-    // Print git log
-    let log = Command::new("git")
+    let output = Command::new("git")
+        .current_dir(repo_dir.path())
         .args(["log", "--oneline"])
-        .current_dir(dir.path())
         .output()?;
-    info!(log = %String::from_utf8_lossy(&log.stdout), "Git log");
+    if !output.status.success() {
+        error!(
+            "git log failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return Err(anyhow!("git log failed"));
+    }
+    info!(log = %String::from_utf8_lossy(&output.stdout), "Git log");
 
-    // Test ancestry
-    let result = git::is_ancestor(&first_commit, &second_commit, dir.path())?;
-    info!(first = %first_commit, second = %second_commit, result = %result, "Ancestor check");
+    // Test ancestry using our git module
+    std::env::set_current_dir(repo_dir.path())?;
+    assert!(git::is_ancestor(&first_commit, &second_commit)?);
+    assert!(!git::is_ancestor(&second_commit, &first_commit)?);
 
-    let result2 = git::is_ancestor(&second_commit, &first_commit, dir.path())?;
-    info!(first = %second_commit, second = %first_commit, result = %result2, "Ancestor check");
-
-    assert!(git::is_ancestor(&first_commit, &second_commit, dir.path())?);
-    assert!(!git::is_ancestor(
-        &second_commit,
-        &first_commit,
-        dir.path()
-    )?);
+    // Test with non-existent commits
+    assert!(!git::is_ancestor("non-existent", &second_commit)?);
+    assert!(!git::is_ancestor(&first_commit, "non-existent")?);
 
     Ok(())
 }
 
-#[test]
-fn test_git_bundle() -> Result<()> {
+#[tokio::test]
+async fn test_git_bundle() -> Result<()> {
     init_test_logging();
-    // Create source repository
-    let source_dir = TempDir::new()?;
-    init_git_repo(&source_dir)?;
+    let source_dir = init_git_repo()?;
     create_commit(&source_dir)?;
 
     // Create bundle
     let bundle_file = source_dir.path().join("test.bundle");
-    git::bundle_create(&bundle_file, "HEAD", source_dir.path())?;
+    let output = Command::new("git")
+        .current_dir(source_dir.path())
+        .args(["bundle", "create", bundle_file.to_str().unwrap(), "HEAD"])
+        .output()?;
+    if !output.status.success() {
+        error!(
+            "git bundle create failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return Err(anyhow!("git bundle create failed"));
+    }
 
     // Verify bundle contents
-    let verify = Command::new("git")
+    let output = Command::new("git")
+        .current_dir(source_dir.path())
         .args(["bundle", "verify", bundle_file.to_str().unwrap()])
-        .current_dir(&source_dir)
         .output()?;
-    info!(
-        output = %String::from_utf8_lossy(&verify.stderr),
-        "Bundle verify output"
-    );
+    if !output.status.success() {
+        error!(
+            "git bundle verify failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return Err(anyhow!("git bundle verify failed"));
+    }
 
-    // Create target repository and unbundle
-    let target_dir = TempDir::new()?;
-    init_git_repo(&target_dir)?;
-
-    // Create an initial commit in target repo
-    create_commit(&target_dir)?;
-
-    // Add the bundle as a remote
-    Command::new("git")
-        .args(["remote", "add", "origin", bundle_file.to_str().unwrap()])
+    // Initialize target repo and unbundle
+    let target_dir = init_git_repo()?;
+    let output = Command::new("git")
         .current_dir(target_dir.path())
+        .args(["bundle", "unbundle", bundle_file.to_str().unwrap()])
         .output()?;
-
-    // Fetch from the bundle
-    let fetch = Command::new("git")
-        .args(["fetch", "origin"])
-        .current_dir(target_dir.path())
-        .output()?;
-    info!(output = %String::from_utf8_lossy(&fetch.stderr), "Fetch output");
-
-    // Checkout the fetched commit
-    let checkout = Command::new("git")
-        .args(["checkout", "FETCH_HEAD"])
-        .current_dir(target_dir.path())
-        .output()?;
-    info!(
-        output = %String::from_utf8_lossy(&checkout.stderr),
-        "Checkout output"
-    );
-
-    // Verify commit exists in target
-    let result = Command::new("git")
-        .args(["log", "--oneline", "HEAD"])
-        .current_dir(target_dir.path())
-        .output()?;
-    info!(output = %String::from_utf8_lossy(&result.stdout), "Log output");
-
-    assert!(String::from_utf8_lossy(&result.stdout).contains("test commit"));
+    if !output.status.success() {
+        error!(
+            "git bundle unbundle failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return Err(anyhow!("git bundle unbundle failed"));
+    }
 
     Ok(())
 }

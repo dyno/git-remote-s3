@@ -11,12 +11,13 @@ use tempfile::TempDir;
 use tokio;
 use tracing::{debug, info};
 
+mod common;
+use common::init_test_logging;
+
 const S3_ENDPOINT: &str = "http://localhost:9001";
 const S3_ACCESS_KEY: &str = "test";
 const S3_SECRET_KEY: &str = "test1234";
-
-mod common;
-use common::init_test_logging;
+const TEST_EMAIL: &str = "test@example.com";
 
 fn setup() -> Result<TempDir> {
     init_test_logging();
@@ -39,12 +40,8 @@ fn git(pwd: &Path, args: &str) -> Command {
     command.env("S3_ENDPOINT", S3_ENDPOINT);
     command.env("AWS_ACCESS_KEY_ID", S3_ACCESS_KEY);
     command.env("AWS_SECRET_ACCESS_KEY", S3_SECRET_KEY);
-    cmd_args(&mut command, args);
-    command
-}
-
-fn cmd_args(command: &mut Command, args: &str) {
     command.args(args.split_whitespace());
+    command
 }
 
 async fn create_test_client() -> Result<Client> {
@@ -107,15 +104,12 @@ fn git_rev_long(pwd: &Path) -> String {
 
 #[tokio::test]
 async fn integration() -> Result<()> {
-    debug!("Starting integration test");
     let client = create_test_client().await?;
-    debug!("Created S3 test client");
     let bucket = "git-remote-s3";
 
-    // Setup s3 bucket
     let _ = delete_bucket_recurse(&client, bucket).await;
     create_bucket(&client, bucket).await?;
-    debug!("Created test bucket: {}", bucket);
+    info!("Created test bucket: {}", bucket);
 
     let test_dir = setup()?;
     info!("Starting integration test");
@@ -128,7 +122,6 @@ async fn integration() -> Result<()> {
 
     info!(repo = %repo1.display(), "Initializing first repository");
     git(&repo1, "init").assert().success();
-    debug!("Initialized git repository");
     git(&repo1, "config user.email test@example.com")
         .assert()
         .success();
@@ -150,13 +143,19 @@ async fn integration() -> Result<()> {
     info!("test: cloning into repo2");
     fs::create_dir_all(&repo2).unwrap();
     git(&repo2, "init").assert().success();
-    git(&repo2, "config user.email test@example.com")
+    git(&repo2, "config user.email test2@example.com")
         .assert()
         .success();
-    git(&repo2, "config user.name Test").assert().success();
+    git(&repo2, "config user.name Test2").assert().success();
     git(&repo2, "remote add origin s3://git-remote-s3/test")
         .assert()
         .success();
+    git(
+        &repo2,
+        format!("config remote.origin.gpgRecipients {}", TEST_EMAIL).as_str(),
+    )
+    .assert()
+    .success();
     git(&repo2, "fetch origin").assert().success();
     git(&repo2, "branch main origin/main").assert().success();
     git(&repo2, "checkout main").assert().success();
