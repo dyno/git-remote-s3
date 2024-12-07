@@ -4,7 +4,7 @@ use tracing::instrument;
 
 use anyhow::{Context, Result};
 use aws_config::{meta::region::RegionProviderChain, retry::RetryConfig, timeout::TimeoutConfig};
-use aws_sdk_s3::{config::Builder as S3Builder, primitives::ByteStream, Client};
+use aws_sdk_s3::{config::Builder as S3ConfigBuilder, primitives::ByteStream, Client};
 use aws_types::region::Region;
 
 #[derive(Debug)]
@@ -74,8 +74,8 @@ pub async fn rename(s3: &Client, from: &Key, to: &Key) -> Result<()> {
     // Copy the object
     s3.copy_object()
         .copy_source(format!("{}/{}", from.bucket, from.key))
-        .bucket(to.bucket.clone())
-        .key(to.key.clone())
+        .bucket(to.bucket.as_str())
+        .key(to.key.as_str())
         .send()
         .await
         .with_context(|| {
@@ -111,7 +111,7 @@ pub async fn create_client(region: Option<String>, endpoint: Option<String>) -> 
     }
 
     let config = config_builder.load().await;
-    let mut client_config = S3Builder::from(&config);
+    let mut client_config = S3ConfigBuilder::from(&config);
     client_config.set_force_path_style(Some(true));
     Ok(Client::from_conf(client_config.build()))
 }
