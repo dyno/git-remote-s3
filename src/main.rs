@@ -140,7 +140,7 @@ async fn cmd_list(s3: &Client, settings: &GitS3Settings) -> Result<()> {
             let latest = refs.latest_ref();
             println!("{} {}", latest.reference.sha, latest.reference.name);
 
-            for stale_ref in refs.by_update_time.iter().skip(1) {
+            for stale_ref in refs.stale_refs() {
                 let short_sha = &stale_ref.reference.sha[..7];
                 println!(
                     "{} {}__{}",

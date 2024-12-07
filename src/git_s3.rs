@@ -1,8 +1,13 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result};
 use aws_config::{retry::RetryConfig, timeout::TimeoutConfig};
 use aws_sdk_s3::Client;
 use once_cell::sync::OnceCell;
-use std::{collections::HashMap, path::Path, time::Duration};
+use std::{
+    cmp::Reverse,
+    collections::{BTreeMap, HashMap},
+    path::Path,
+    time::Duration,
+};
 use tracing::{debug, info};
 
 use crate::{git, gpg, s3};
@@ -12,7 +17,7 @@ pub struct GitS3Settings {
     // Provided properties
     pub remote_alias: String,
     pub url: String,
-    
+
     // Derived properties
     bucket: OnceCell<String>,
     key: OnceCell<String>,
@@ -48,15 +53,15 @@ impl GitS3Settings {
     }
 
     pub fn endpoint(&self) -> Option<&str> {
-        self.endpoint.get_or_init(|| {
-            std::env::var("S3_ENDPOINT").ok()
-        }).as_deref()
+        self.endpoint
+            .get_or_init(|| std::env::var("S3_ENDPOINT").ok())
+            .as_deref()
     }
 
     pub fn region(&self) -> Option<&str> {
-        self.region.get_or_init(|| {
-            std::env::var("AWS_REGION").ok()
-        }).as_deref()
+        self.region
+            .get_or_init(|| std::env::var("AWS_REGION").ok())
+            .as_deref()
     }
 }
 
@@ -74,19 +79,50 @@ impl GitRef {
 
 #[derive(Debug)]
 pub struct RemoteRef {
-    pub object: s3::Key,
-    pub updated: String,
+    /// Last modified timestamp of the S3 object, used for sorting refs by update time.
+    /// Stored as Unix timestamp in nanoseconds since epoch.
+    ///
+    /// # Example
+    /// ```
+    /// # use git_remote_s3::git_s3::{RemoteRef, GitRef};
+    /// let remote_ref = RemoteRef {
+    ///     updated: 1701925200_000_000_000, // Dec 7, 2023 00:00:00.000000000 UTC
+    ///     reference: GitRef {
+    ///         name: "main".to_string(),
+    ///         sha: "abc123".to_string(),
+    ///     },
+    /// };
+    /// ```
+    pub updated: i128,
     pub reference: GitRef,
 }
 
 #[derive(Debug)]
 pub struct RemoteRefs {
-    pub by_update_time: Vec<RemoteRef>,
+    // BTreeMap with Reverse ordering to sort timestamps in descending order (newest first)
+    by_update_time: BTreeMap<Reverse<i128>, RemoteRef>,
 }
 
 impl RemoteRefs {
+    pub fn new() -> Self {
+        RemoteRefs {
+            by_update_time: BTreeMap::new(),
+        }
+    }
+
     pub fn latest_ref(&self) -> &RemoteRef {
-        self.by_update_time.get(0).unwrap()
+        // Get the first entry since we're using Reverse ordering
+        self.by_update_time.values().next().unwrap()
+    }
+
+    pub fn add_ref(&mut self, remote_ref: RemoteRef) {
+        let timestamp = Reverse(remote_ref.updated);
+        self.by_update_time.insert(timestamp, remote_ref);
+    }
+
+    pub fn stale_refs(&self) -> impl Iterator<Item = &RemoteRef> {
+        // Skip the first entry (most recent) and return the rest
+        self.by_update_time.values().skip(1)
     }
 }
 
@@ -120,70 +156,73 @@ pub async fn push(s3: &Client, enc_file: &Path, o: &s3::Key) -> Result<()> {
     s3::put(s3, enc_file, o).await
 }
 
-// Git reference operations
-pub async fn list_refs(s3: &Client, settings: &GitS3Settings) -> Result<HashMap<String, RemoteRefs>> {
+/// Lists all Git references stored in S3, organized by reference name.
+///
+/// retrieves all objects from the S3 bucket under the specified prefix and
+/// organizes them into a map of Git references. Each entry in the map
+/// represents a reference (e.g., "main", "feature/xyz") and contains all
+/// versions of that reference sorted by their last modified timestamp.
+
+pub async fn list_refs(
+    s3: &Client,
+    settings: &GitS3Settings,
+) -> Result<HashMap<String, RemoteRefs>> {
     let result = s3
         .list_objects_v2()
         .bucket(settings.bucket())
         .prefix(settings.key())
         .send()
-        .await
-        .map_err(|e| anyhow!("list objects failed: {}", e))?;
+        .await?;
 
     let objects = result.contents().unwrap_or_default();
-    let mut refs_map = HashMap::new();
 
-    for obj in objects {
-        if let Some(key) = obj.key() {
-            let key_str = key.to_string();
-            if let Some(last_slash) = key_str.rfind('/') {
-                if let Some(last_dot) = key_str.rfind('.') {
-                    let name = key_str
-                        .get((settings.key().len() + 1)..last_slash)
-                        .unwrap_or("")
-                        .to_string();
-                    let sha = key_str
-                        .get((last_slash + 1)..last_dot)
-                        .unwrap_or("")
-                        .to_string();
+    // Parse S3 keys into RemoteRefs
+    let refs_with_names = objects.iter().filter_map(|obj| {
+        // key = project1.git/refs/heads/features/fXXX/99d98906d65894a9eac5fda27b0c41d2cf372dd6.bundle
+        let key = obj.key()?;
+        let mut parts = key.trim_end_matches(".bundle").rsplit('/');
+        let sha = parts.next()?; // sha = 99d98906d65894a9eac5fda27b0c41d2cf372dd6
+        
+        // name = refs/heads/features/fXXX
+        let name = key
+            .strip_prefix(settings.key())? // Remove prefix (e.g. "project1.git")
+            .trim_start_matches('/')
+            .strip_suffix(&format!("/{}.bundle", sha))? // Remove suffix (e.g. "/[sha].bundle")
+            .to_string();
 
-                    let remote_ref = RemoteRef {
-                        object: s3::Key {
-                            bucket: settings.bucket().to_string(),
-                            key: key_str,
-                        },
-                        updated: obj
-                            .last_modified()
-                            .map(|dt| dt.as_secs_f64().to_string())
-                            .unwrap_or_default(),
-                        reference: GitRef {
-                            name: name.clone(),
-                            sha,
-                        },
-                    };
+        Some((
+            name.clone(),
+            RemoteRef {
+                updated: obj
+                    .last_modified()
+                    .map(|dt| dt.as_nanos())
+                    .unwrap_or_default(),
+                reference: GitRef {
+                    name,
+                    sha: sha.to_string(),
+                },
+            },
+        ))
+    });
 
-                    refs_map
-                        .entry(name)
-                        .or_insert_with(|| RemoteRefs {
-                            by_update_time: Vec::new(),
-                        })
-                        .by_update_time
-                        .push(remote_ref);
-                }
-            }
-        }
-    }
-
-    // Sort refs by update time
-    for refs in refs_map.values_mut() {
-        refs.by_update_time.sort_by(|a, b| b.updated.cmp(&a.updated));
-    }
+    // Group refs by name into a HashMap
+    let refs_map = refs_with_names.fold(HashMap::new(), |mut acc, (name, remote_ref)| {
+        acc.entry(name)
+            .or_insert_with(RemoteRefs::new)
+            .add_ref(remote_ref);
+        acc
+    });
 
     Ok(refs_map)
 }
 
 // Git bundle operations
-pub async fn fetch_from_s3(s3: &Client, settings: &GitS3Settings, r: &GitRef, current_dir: &Path) -> Result<()> {
+pub async fn fetch_from_s3(
+    s3: &Client,
+    settings: &GitS3Settings,
+    r: &GitRef,
+    current_dir: &Path,
+) -> Result<()> {
     info!(?r, "Fetching from S3");
 
     let tmp_dir = std::env::temp_dir();
@@ -245,4 +284,42 @@ pub async fn push_to_s3(
     push(s3, &enc_file, &o).await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_remote_refs_sorting() {
+        let mut refs = RemoteRefs::new();
+
+        // Add refs with different timestamps (nanoseconds)
+        refs.add_ref(RemoteRef {
+            updated: 1701925200_000_000_000, // Dec 7, 2023 00:00:00.000000000 UTC
+            reference: GitRef {
+                name: "main".to_string(),
+                sha: "abc123".to_string(),
+            },
+        });
+
+        refs.add_ref(RemoteRef {
+            updated: 1701838800_000_000_000, // Dec 6, 2023 00:00:00.000000000 UTC
+            reference: GitRef {
+                name: "main".to_string(),
+                sha: "def456".to_string(),
+            },
+        });
+
+        // Verify that latest_ref returns the most recent ref
+        let latest = refs.latest_ref();
+        assert_eq!(latest.updated, 1701925200_000_000_000);
+        assert_eq!(latest.reference.sha, "abc123");
+
+        // Verify that stale_refs returns older refs in order
+        let stale: Vec<_> = refs.stale_refs().collect();
+        assert_eq!(stale.len(), 1);
+        assert_eq!(stale[0].updated, 1701838800_000_000_000);
+        assert_eq!(stale[0].reference.sha, "def456");
+    }
 }
