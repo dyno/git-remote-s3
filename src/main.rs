@@ -4,7 +4,6 @@ use std::{env, io, path::PathBuf};
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
-mod common;
 mod git;
 mod git_s3;
 mod gpg;
@@ -223,9 +222,10 @@ async fn cmd_push(s3: &Client, settings: &GitS3Settings, push_ref: &str) -> Resu
         ),
     };
 
+    let current_dir = env::current_dir()?;
     let local_ref = GitRef {
         name: dst.to_string(),
-        sha: git::rev_parse(src)?,
+        sha: git::rev_parse(src, &current_dir)?,
     };
 
     let refs = list_refs(s3, settings).await?;
@@ -233,7 +233,7 @@ async fn cmd_push(s3: &Client, settings: &GitS3Settings, push_ref: &str) -> Resu
         if let Some(prev_refs) = refs.get(&local_ref.name) {
             let prev_ref = prev_refs.latest_ref();
             if !prev_ref.reference.sha.is_empty() {
-                if !git::is_ancestor(&prev_ref.reference.sha, &local_ref.sha)? {
+                if !git::is_ancestor(&prev_ref.reference.sha, &local_ref.sha, &current_dir)? {
                     warn!(?dst, "Remote changed - force push required");
                     println!("error {} remote changed: force push required", dst);
                     return Ok(());

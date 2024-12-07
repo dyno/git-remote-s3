@@ -1,4 +1,3 @@
-use crate::common::log_command;
 use anyhow::{anyhow, Result};
 use std::fs;
 use std::path::Path;
@@ -20,14 +19,10 @@ pub fn encrypt(recipients: &[String], input: &Path, output: &Path) -> Result<()>
         .arg("--output")
         .arg(output)
         .arg("--encrypt");
-
     for r in recipients {
         cmd.arg("--recipient").arg(r);
     }
-
     cmd.arg(input);
-
-    log_command(&cmd);
 
     let output = cmd.output()?;
     if !output.status.success() {
@@ -54,8 +49,6 @@ pub fn decrypt(input: &Path, output: &Path) -> Result<()> {
         .arg(output)
         .arg("--decrypt")
         .arg(input);
-
-    log_command(&cmd);
 
     let output = cmd.output()?;
     if !output.status.success() {

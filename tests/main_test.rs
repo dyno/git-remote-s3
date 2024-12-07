@@ -44,6 +44,7 @@ fn git(pwd: &Path, args: &str) -> Command {
     command
 }
 
+// Used to inspect s3 directly.
 async fn create_test_client() -> Result<Client> {
     env::set_var("AWS_ACCESS_KEY_ID", S3_ACCESS_KEY);
     env::set_var("AWS_SECRET_ACCESS_KEY", S3_SECRET_KEY);

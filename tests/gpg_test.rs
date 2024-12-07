@@ -16,9 +16,7 @@ fn test_gpg_no_recipients() -> Result<()> {
     let mut input_file = NamedTempFile::new()?;
     write!(input_file, "test content")?;
 
-    // Create a temporary output file
     let output_file = NamedTempFile::new()?;
-
     // Test encryption with no recipients (should just copy)
     gpg::encrypt(&[], input_file.path(), output_file.path())?;
 
