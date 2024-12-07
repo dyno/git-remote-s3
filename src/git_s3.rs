@@ -1,12 +1,10 @@
-use anyhow::{Result};
-use aws_config::{retry::RetryConfig, timeout::TimeoutConfig};
+use anyhow::Result;
 use aws_sdk_s3::Client;
 use once_cell::sync::OnceCell;
 use std::{
     cmp::Reverse,
     collections::{BTreeMap, HashMap},
     path::Path,
-    time::Duration,
 };
 use tracing::{debug, info};
 
@@ -126,27 +124,6 @@ impl RemoteRefs {
     }
 }
 
-// S3 client configuration
-pub async fn get_s3_client(settings: &GitS3Settings) -> Result<Client> {
-    let region_provider = s3::create_region_provider(settings.region().map(String::from));
-
-    let mut config_builder = aws_config::from_env()
-        .region(region_provider)
-        .retry_config(RetryConfig::standard().with_max_attempts(3))
-        .timeout_config(
-            TimeoutConfig::builder()
-                .operation_timeout(Duration::from_secs(30))
-                .build(),
-        );
-
-    if let Some(endpoint) = settings.endpoint() {
-        config_builder = config_builder.endpoint_url(endpoint);
-    }
-
-    let config = config_builder.load().await;
-    Ok(s3::create_client(&config, true))
-}
-
 // Basic S3 operations
 pub async fn fetch(s3: &Client, o: &s3::Key, enc_file: &Path) -> Result<()> {
     s3::get(s3, &enc_file, o).await
@@ -182,7 +159,7 @@ pub async fn list_refs(
         let key = obj.key()?;
         let mut parts = key.trim_end_matches(".bundle").rsplit('/');
         let sha = parts.next()?; // sha = 99d98906d65894a9eac5fda27b0c41d2cf372dd6
-        
+
         // name = refs/heads/features/fXXX
         let name = key
             .strip_prefix(settings.key())? // Remove prefix (e.g. "project1.git")

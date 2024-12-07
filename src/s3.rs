@@ -1,8 +1,9 @@
 use std::path::Path;
+use std::time::Duration;
 use tracing::instrument;
 
 use anyhow::{Context, Result};
-use aws_config::{meta::region::RegionProviderChain, SdkConfig};
+use aws_config::{meta::region::RegionProviderChain, retry::RetryConfig, timeout::TimeoutConfig};
 use aws_sdk_s3::{config::Builder as S3Builder, primitives::ByteStream, Client};
 use aws_types::region::Region;
 
@@ -90,16 +91,27 @@ pub async fn rename(s3: &Client, from: &Key, to: &Key) -> Result<()> {
     Ok(())
 }
 
-/// Create an S3 client from AWS SDK configuration
-pub fn create_client(config: &SdkConfig, force_path_style: bool) -> Client {
-    let mut client_config = S3Builder::from(config);
-    client_config.set_force_path_style(Some(force_path_style));
-    Client::from_conf(client_config.build())
-}
-
-/// Create a region provider chain with a default region
-pub fn create_region_provider(region: Option<String>) -> RegionProviderChain {
-    RegionProviderChain::first_try(region.map(Region::new))
+/// Create an S3 client with custom configuration
+pub async fn create_client(region: Option<String>, endpoint: Option<String>) -> Result<Client> {
+    let region_provider = RegionProviderChain::first_try(region.map(Region::new))
         .or_default_provider()
-        .or_else(Region::new("us-east-1"))
+        .or_else(Region::new("us-east-1"));
+
+    let mut config_builder = aws_config::from_env()
+        .region(region_provider)
+        .retry_config(RetryConfig::standard().with_max_attempts(3))
+        .timeout_config(
+            TimeoutConfig::builder()
+                .operation_timeout(Duration::from_secs(30))
+                .build(),
+        );
+
+    if let Some(endpoint) = endpoint {
+        config_builder = config_builder.endpoint_url(endpoint);
+    }
+
+    let config = config_builder.load().await;
+    let mut client_config = S3Builder::from(&config);
+    client_config.set_force_path_style(Some(true));
+    Ok(Client::from_conf(client_config.build()))
 }

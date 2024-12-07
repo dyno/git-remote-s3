@@ -1,8 +1,5 @@
 use anyhow::Result;
-use aws_sdk_s3::{
-    config::{Credentials, Region},
-    Client,
-};
+use aws_sdk_s3::Client;
 use std::fs;
 use std::io::Write;
 use tempfile::NamedTempFile;
@@ -34,20 +31,15 @@ async fn ensure_test_bucket(s3: &Client) -> Result<()> {
 #[tokio::test]
 async fn test_s3_operations() -> Result<()> {
     init_test_logging();
-    let config = aws_config::from_env()
-        .region(Region::new(TEST_REGION))
-        .endpoint_url(TEST_ENDPOINT)
-        .credentials_provider(Credentials::new(
-            TEST_ACCESS_KEY,
-            TEST_SECRET_KEY,
-            None,
-            None,
-            "test",
-        ))
-        .load()
-        .await;
 
-    let s3 = s3::create_client(&config, true);
+    std::env::set_var("AWS_ACCESS_KEY_ID", TEST_ACCESS_KEY);
+    std::env::set_var("AWS_SECRET_ACCESS_KEY", TEST_SECRET_KEY);
+
+    let s3 = s3::create_client(
+        Some(TEST_REGION.to_string()),
+        Some(TEST_ENDPOINT.to_string()),
+    )
+    .await?;
     ensure_test_bucket(&s3).await?;
 
     // Create a test file

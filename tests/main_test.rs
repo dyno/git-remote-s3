@@ -1,7 +1,7 @@
 use anyhow::Result;
 use assert_cmd::assert::OutputAssertExt;
 use assert_cmd::cargo::cargo_bin;
-use aws_sdk_s3::{config::Region, Client};
+use aws_sdk_s3::Client;
 use git_remote_s3::s3;
 use std::env;
 use std::fs;
@@ -51,13 +51,7 @@ async fn create_test_client() -> Result<Client> {
     env::set_var("AWS_ACCESS_KEY_ID", S3_ACCESS_KEY);
     env::set_var("AWS_SECRET_ACCESS_KEY", S3_SECRET_KEY);
 
-    let config = aws_config::from_env()
-        .region(Region::new("us-east-1"))
-        .endpoint_url(S3_ENDPOINT)
-        .load()
-        .await;
-
-    Ok(s3::create_client(&config, true))
+    s3::create_client(Some("us-east-1".to_string()), Some(S3_ENDPOINT.to_string())).await
 }
 
 async fn delete_object(client: &Client, bucket: &str, filename: &str) -> Result<()> {

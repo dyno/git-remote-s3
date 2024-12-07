@@ -14,7 +14,8 @@ mod gpg;
 mod log;
 mod s3;
 
-use crate::git_s3::{fetch_from_s3, get_s3_client, list_refs, push_to_s3, GitRef, GitS3Settings};
+use crate::git_s3::{fetch_from_s3, list_refs, push_to_s3, GitRef, GitS3Settings};
+use crate::s3::create_client;
 
 // implemented the git-remote-helpers protocol: https://git-scm.com/docs/gitremote-helpers
 
@@ -46,7 +47,11 @@ async fn main() -> Result<()> {
     info!(?helper, ?alias, ?url, "Starting ");
 
     let settings = GitS3Settings::new(alias, url);
-    let s3 = get_s3_client(&settings).await?;
+    let s3 = create_client(
+        settings.region().map(String::from),
+        settings.endpoint().map(String::from),
+    )
+    .await?;
     info!("S3 client initialized");
 
     let current_dir = std::env::current_dir()?;
