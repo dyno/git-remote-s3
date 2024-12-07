@@ -1,18 +1,63 @@
 use anyhow::{anyhow, Result};
 use aws_config::{retry::RetryConfig, timeout::TimeoutConfig};
 use aws_sdk_s3::Client;
+use once_cell::sync::OnceCell;
 use std::{collections::HashMap, path::Path, time::Duration};
 use tracing::{debug, info};
 
 use crate::{git, gpg, s3};
 
-// Settings and configuration structs
 #[derive(Debug)]
-pub struct Settings {
+pub struct GitS3Settings {
+    // Provided properties
     pub remote_alias: String,
-    pub root: s3::Key,
-    pub endpoint: Option<String>,
-    pub region: Option<String>,
+    pub url: String,
+    
+    // Derived properties
+    bucket: OnceCell<String>,
+    key: OnceCell<String>,
+    endpoint: OnceCell<Option<String>>,
+    region: OnceCell<Option<String>>,
+}
+
+impl GitS3Settings {
+    pub fn new(remote_alias: String, url: String) -> Self {
+        assert!(url.starts_with("s3://"));
+        GitS3Settings {
+            remote_alias,
+            url,
+            bucket: OnceCell::new(),
+            key: OnceCell::new(),
+            endpoint: OnceCell::new(),
+            region: OnceCell::new(),
+        }
+    }
+
+    pub fn bucket(&self) -> &str {
+        self.bucket.get_or_init(|| {
+            let path = self.url.strip_prefix("s3://").unwrap();
+            path.split_once('/').unwrap().0.to_string()
+        })
+    }
+
+    pub fn key(&self) -> &str {
+        self.key.get_or_init(|| {
+            let path = self.url.strip_prefix("s3://").unwrap();
+            path.split_once('/').unwrap().1.to_string()
+        })
+    }
+
+    pub fn endpoint(&self) -> Option<&str> {
+        self.endpoint.get_or_init(|| {
+            std::env::var("S3_ENDPOINT").ok()
+        }).as_deref()
+    }
+
+    pub fn region(&self) -> Option<&str> {
+        self.region.get_or_init(|| {
+            std::env::var("AWS_REGION").ok()
+        }).as_deref()
+    }
 }
 
 #[derive(Debug)]
@@ -22,7 +67,7 @@ pub struct GitRef {
 }
 
 impl GitRef {
-    fn bundle_path(&self, prefix: String) -> String {
+    fn bundle_path(&self, prefix: &str) -> String {
         format!("{}/{}/{}.bundle", prefix, self.name, self.sha)
     }
 }
@@ -46,8 +91,8 @@ impl RemoteRefs {
 }
 
 // S3 client configuration
-pub async fn get_s3_client(settings: &Settings) -> Result<Client> {
-    let region_provider = s3::create_region_provider(settings.region.clone());
+pub async fn get_s3_client(settings: &GitS3Settings) -> Result<Client> {
+    let region_provider = s3::create_region_provider(settings.region().map(String::from));
 
     let mut config_builder = aws_config::from_env()
         .region(region_provider)
@@ -58,7 +103,7 @@ pub async fn get_s3_client(settings: &Settings) -> Result<Client> {
                 .build(),
         );
 
-    if let Some(endpoint) = &settings.endpoint {
+    if let Some(endpoint) = settings.endpoint() {
         config_builder = config_builder.endpoint_url(endpoint);
     }
 
@@ -76,11 +121,11 @@ pub async fn push(s3: &Client, enc_file: &Path, o: &s3::Key) -> Result<()> {
 }
 
 // Git reference operations
-pub async fn list_refs(s3: &Client, settings: &Settings) -> Result<HashMap<String, RemoteRefs>> {
+pub async fn list_refs(s3: &Client, settings: &GitS3Settings) -> Result<HashMap<String, RemoteRefs>> {
     let result = s3
         .list_objects_v2()
-        .bucket(&settings.root.bucket)
-        .prefix(&settings.root.key)
+        .bucket(settings.bucket())
+        .prefix(settings.key())
         .send()
         .await
         .map_err(|e| anyhow!("list objects failed: {}", e))?;
@@ -94,7 +139,7 @@ pub async fn list_refs(s3: &Client, settings: &Settings) -> Result<HashMap<Strin
             if let Some(last_slash) = key_str.rfind('/') {
                 if let Some(last_dot) = key_str.rfind('.') {
                     let name = key_str
-                        .get((settings.root.key.len() + 1)..last_slash)
+                        .get((settings.key().len() + 1)..last_slash)
                         .unwrap_or("")
                         .to_string();
                     let sha = key_str
@@ -104,7 +149,7 @@ pub async fn list_refs(s3: &Client, settings: &Settings) -> Result<HashMap<Strin
 
                     let remote_ref = RemoteRef {
                         object: s3::Key {
-                            bucket: settings.root.bucket.clone(),
+                            bucket: settings.bucket().to_string(),
                             key: key_str,
                         },
                         updated: obj
@@ -131,32 +176,25 @@ pub async fn list_refs(s3: &Client, settings: &Settings) -> Result<HashMap<Strin
 
     // Sort refs by update time
     for refs in refs_map.values_mut() {
-        refs.by_update_time
-            .sort_by(|a, b| b.updated.cmp(&a.updated));
+        refs.by_update_time.sort_by(|a, b| b.updated.cmp(&a.updated));
     }
 
     Ok(refs_map)
 }
 
 // Git bundle operations
-pub async fn fetch_from_s3(
-    s3: &Client,
-    settings: &Settings,
-    r: &GitRef,
-    current_dir: &Path,
-) -> Result<()> {
+pub async fn fetch_from_s3(s3: &Client, settings: &GitS3Settings, r: &GitRef, current_dir: &Path) -> Result<()> {
     info!(?r, "Fetching from S3");
 
     let tmp_dir = std::env::temp_dir();
-
     debug!(?tmp_dir, "Created temporary directory");
 
     let bundle_file = tmp_dir.join("bundle");
     let enc_file = tmp_dir.join("bundle_enc");
 
-    let path = r.bundle_path(settings.root.key.to_owned());
+    let path = r.bundle_path(settings.key());
     let o = s3::Key {
-        bucket: settings.root.bucket.to_owned(),
+        bucket: settings.bucket().to_owned(),
         key: path,
     };
 
@@ -174,12 +212,11 @@ pub async fn fetch_from_s3(
 
 pub async fn push_to_s3(
     s3: &Client,
-    settings: &Settings,
+    settings: &GitS3Settings,
     r: &GitRef,
     current_dir: &Path,
 ) -> Result<()> {
     let tmp_dir = std::env::temp_dir();
-
     let bundle_file = tmp_dir.join("bundle");
     let enc_file = tmp_dir.join("bundle_enc");
 
@@ -199,9 +236,9 @@ pub async fn push_to_s3(
 
     gpg::encrypt(&recipients, &bundle_file, &enc_file)?;
 
-    let path = r.bundle_path(settings.root.key.to_owned());
+    let path = r.bundle_path(settings.key());
     let o = s3::Key {
-        bucket: settings.root.bucket.to_owned(),
+        bucket: settings.bucket().to_owned(),
         key: path,
     };
 

@@ -741,6 +741,7 @@ dependencies = [
  "aws-config",
  "aws-sdk-s3",
  "aws-types",
+ "once_cell",
  "tempfile",
  "time",
  "tokio",
