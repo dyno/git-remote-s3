@@ -61,10 +61,11 @@ pub fn is_ancestor(base_ref: &str, remote_ref: &str) -> Result<bool> {
 
     cmd.output()
         .map(|output| output.status.success() && output.status.code() == Some(0))
-        .or_else(|err| {
-            error!(?cmd, ?err, "command executue failed ");
-            Ok(false)
+        .map_err(|err| {
+            error!(?cmd, ?err, "command execute failed");
+            anyhow!("command execute failed: {:?}", err)
         })
+        .or_else(|_| Ok(false))
 }
 
 #[instrument]
