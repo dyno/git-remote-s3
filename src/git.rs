@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use std::path::Path;
 use std::process::Command;
 use tracing::{error, instrument};
@@ -54,12 +54,12 @@ pub fn is_ancestor(base_ref: &str, remote_ref: &str, current_dir: &Path) -> Resu
 
     cmd.current_dir(&current_dir)
         .output()
+        .with_context(|| format!("git merge-base --is-ancestor {} {}", base_ref, remote_ref))
         .map(|output| output.status.success() && output.status.code() == Some(0))
-        .map_err(|err| {
-            error!(?cmd, ?err, "command execute failed");
-            anyhow!("command execute failed: {:?}", err)
+        .or_else(|err| {
+            error!(?err);
+            Ok(false)
         })
-        .or_else(|_| Ok(false))
 }
 
 #[instrument]

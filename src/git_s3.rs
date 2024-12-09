@@ -5,7 +5,6 @@ use std::{
     cmp::Reverse,
     collections::{BTreeMap, HashMap},
     env::{current_dir, temp_dir},
-    path::Path,
 };
 use tracing::{debug, info};
 
